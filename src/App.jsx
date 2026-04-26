@@ -17,6 +17,7 @@ import Auth from "./components/Auth";
 import PlayerStats from "./components/PlayerStats";
 
 const STORAGE_KEY = "celle-strikers-v2";
+const LIVE_MATCH_KEY = "celle-strikers-live-match";
 
 function createPlayer(name) {
   return {
@@ -54,6 +55,7 @@ export default function App() {
 
   const [teamAInput, setTeamAInput] = useState("");
   const [teamBInput, setTeamBInput] = useState("");
+  const [latePlayerInput, setLatePlayerInput] = useState("");
 
   const [matchOvers, setMatchOvers] = useState(6);
   const [tossWinner, setTossWinner] = useState("A");
@@ -86,6 +88,22 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
 
+  const currentPlayers = battingTeam === "A" ? teamAPlayers : teamBPlayers;
+  const currentTeamName = battingTeam === "A" ? teamAName : teamBName;
+  const bowlingTeamName = battingTeam === "A" ? teamBName : teamAName;
+  const maxBalls = Number(matchOvers) * 6;
+  const target = firstInnings ? firstInnings.score + 1 : null;
+
+  const selectedStriker = useMemo(
+    () => currentPlayers.find((player) => player.id === strikerId),
+    [currentPlayers, strikerId]
+  );
+
+  const selectedNonStriker = useMemo(
+    () => currentPlayers.find((player) => player.id === nonStrikerId),
+    [currentPlayers, nonStrikerId]
+  );
+
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
 
@@ -97,6 +115,48 @@ export default function App() {
       setTeamBPlayers(data.teamBPlayers || []);
       setMatchOvers(data.matchOvers || 6);
     }
+  }, []);
+
+  useEffect(() => {
+    const liveMatch = localStorage.getItem(LIVE_MATCH_KEY);
+
+    if (!liveMatch) return;
+
+    const resume = window.confirm("Resume unfinished match?");
+
+    if (!resume) return;
+
+    const m = JSON.parse(liveMatch);
+
+    setTeamAName(m.teamAName || "Team A");
+    setTeamBName(m.teamBName || "Team B");
+    setTeamAPlayers(m.teamAPlayers || []);
+    setTeamBPlayers(m.teamBPlayers || []);
+
+    setMatchOvers(m.matchOvers || 6);
+    setTossWinner(m.tossWinner || "A");
+    setTossDecision(m.tossDecision || "bat");
+    setLastManStanding(m.lastManStanding ?? true);
+
+    setInningsNumber(m.inningsNumber || 1);
+    setBattingTeam(m.battingTeam || "A");
+
+    setScore(m.score || 0);
+    setWickets(m.wickets || 0);
+    setBalls(m.balls || 0);
+    setExtras(m.extras || 0);
+
+    setFirstInnings(m.firstInnings || null);
+    setResult(m.result || "");
+
+    setStrikerId(m.strikerId || "");
+    setNonStrikerId(m.nonStrikerId || "");
+
+    setTimeline(m.timeline || []);
+    setBallHistory(m.ballHistory || []);
+
+    setMatchStarted(true);
+    setMatchFinished(false);
   }, []);
 
   useEffect(() => {
@@ -113,6 +173,59 @@ export default function App() {
   }, [teamAName, teamBName, teamAPlayers, teamBPlayers, matchOvers]);
 
   useEffect(() => {
+    if (!matchStarted || matchFinished) return;
+
+    const liveMatchData = {
+      teamAName,
+      teamBName,
+      teamAPlayers,
+      teamBPlayers,
+      matchOvers,
+      tossWinner,
+      tossDecision,
+      lastManStanding,
+      inningsNumber,
+      battingTeam,
+      score,
+      wickets,
+      balls,
+      extras,
+      firstInnings,
+      result,
+      strikerId,
+      nonStrikerId,
+      timeline,
+      ballHistory,
+      matchStarted,
+    };
+
+    localStorage.setItem(LIVE_MATCH_KEY, JSON.stringify(liveMatchData));
+  }, [
+    teamAName,
+    teamBName,
+    teamAPlayers,
+    teamBPlayers,
+    matchOvers,
+    tossWinner,
+    tossDecision,
+    lastManStanding,
+    inningsNumber,
+    battingTeam,
+    score,
+    wickets,
+    balls,
+    extras,
+    firstInnings,
+    result,
+    strikerId,
+    nonStrikerId,
+    timeline,
+    ballHistory,
+    matchStarted,
+    matchFinished,
+  ]);
+
+  useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setAuthLoading(false);
@@ -126,22 +239,6 @@ export default function App() {
       loadMatchHistory();
     }
   }, [user]);
-
-  const currentPlayers = battingTeam === "A" ? teamAPlayers : teamBPlayers;
-  const currentTeamName = battingTeam === "A" ? teamAName : teamBName;
-  const bowlingTeamName = battingTeam === "A" ? teamBName : teamAName;
-  const maxBalls = Number(matchOvers) * 6;
-  const target = firstInnings ? firstInnings.score + 1 : null;
-
-  const selectedStriker = useMemo(
-    () => currentPlayers.find((player) => player.id === strikerId),
-    [currentPlayers, strikerId]
-  );
-
-  const selectedNonStriker = useMemo(
-    () => currentPlayers.find((player) => player.id === nonStrikerId),
-    [currentPlayers, nonStrikerId]
-  );
 
   async function loadMatchHistory() {
     try {
@@ -246,12 +343,40 @@ export default function App() {
     }
   }
 
+  function addLatePlayerToCurrentTeam() {
+    if (!latePlayerInput.trim()) return;
+
+    const newPlayer = createPlayer(latePlayerInput.trim());
+
+    if (battingTeam === "A") {
+      setTeamAPlayers([...teamAPlayers, newPlayer]);
+    } else {
+      setTeamBPlayers([...teamBPlayers, newPlayer]);
+    }
+
+    setLatePlayerInput("");
+  }
+
   function removePlayer(team, id) {
     if (team === "A") {
       setTeamAPlayers(teamAPlayers.filter((player) => player.id !== id));
     } else {
       setTeamBPlayers(teamBPlayers.filter((player) => player.id !== id));
     }
+  }
+
+  function removeCurrentTeamPlayer(player) {
+    if (player.id === strikerId || player.id === nonStrikerId) {
+      alert("Can't remove active batter.");
+      return;
+    }
+
+    if (player.runs > 0 || player.balls > 0 || player.out) {
+      const confirmed = confirm("Remove player with existing stats?");
+      if (!confirmed) return;
+    }
+
+    updateCurrentPlayers(currentPlayers.filter((p) => p.id !== player.id));
   }
 
   function startMatch() {
@@ -558,6 +683,7 @@ export default function App() {
     }
 
     setMatchFinished(true);
+    localStorage.removeItem(LIVE_MATCH_KEY);
   }
 
   function resetMatchOnly() {
@@ -575,6 +701,7 @@ export default function App() {
     setNonStrikerId("");
     setTimeline([]);
     setBallHistory([]);
+    localStorage.removeItem(LIVE_MATCH_KEY);
   }
 
   if (authLoading) {
@@ -795,6 +922,46 @@ export default function App() {
                       <strong>{selectedStriker?.name || "N/A"}</strong> and{" "}
                       <strong>{selectedNonStriker?.name || "N/A"}</strong>
                     </p>
+                  </div>
+
+                  <div className="bg-slate-800 p-4 rounded-2xl mb-4">
+                    <h3 className="font-bold mb-3">
+                      Manage Players During Match
+                    </h3>
+
+                    <div className="flex gap-2">
+                      <input
+                        value={latePlayerInput}
+                        onChange={(e) => setLatePlayerInput(e.target.value)}
+                        placeholder={`Add late player to ${currentTeamName}`}
+                        className="flex-1 p-3 rounded-xl bg-slate-900"
+                      />
+
+                      <button
+                        onClick={addLatePlayerToCurrentTeam}
+                        className="bg-green-500 px-5 rounded-xl font-bold"
+                      >
+                        Add Player
+                      </button>
+                    </div>
+
+                    <div className="mt-4 space-y-2">
+                      {currentPlayers.map((player) => (
+                        <div
+                          key={player.id}
+                          className="flex justify-between bg-slate-900 p-3 rounded-xl"
+                        >
+                          <span>{player.name}</span>
+
+                          <button
+                            onClick={() => removeCurrentTeamPlayer(player)}
+                            className="text-red-400"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
