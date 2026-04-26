@@ -104,6 +104,50 @@ export default function App() {
     [currentPlayers, nonStrikerId]
   );
 
+function resumeSavedMatch() {
+  const liveMatch = localStorage.getItem(LIVE_MATCH_KEY);
+
+  if (!liveMatch) {
+    alert("No unfinished match found.");
+    setHasSavedLiveMatch(false);
+    return;
+  }
+
+  const m = JSON.parse(liveMatch);
+
+  setTeamAName(m.teamAName || "Team A");
+  setTeamBName(m.teamBName || "Team B");
+  setTeamAPlayers(m.teamAPlayers || []);
+  setTeamBPlayers(m.teamBPlayers || []);
+
+  setMatchOvers(m.matchOvers || 6);
+  setTossWinner(m.tossWinner || "A");
+  setTossDecision(m.tossDecision || "bat");
+  setLastManStanding(m.lastManStanding ?? true);
+
+  setInningsNumber(m.inningsNumber || 1);
+  setBattingTeam(m.battingTeam || "A");
+
+  setScore(m.score || 0);
+  setWickets(m.wickets || 0);
+  setBalls(m.balls || 0);
+  setExtras(m.extras || 0);
+
+  setFirstInnings(m.firstInnings || null);
+  setResult(m.result || "");
+
+  setStrikerId(m.strikerId || "");
+  setNonStrikerId(m.nonStrikerId || "");
+
+  setTimeline(m.timeline || []);
+  setBallHistory(m.ballHistory || []);
+
+  setMatchStarted(true);
+  setMatchFinished(false);
+  setActiveTab("score");
+  setHasSavedLiveMatch(false);
+}
+
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
 
@@ -117,47 +161,12 @@ export default function App() {
     }
   }, []);
 
-  useEffect(() => {
-    const liveMatch = localStorage.getItem(LIVE_MATCH_KEY);
+const [hasSavedLiveMatch, setHasSavedLiveMatch] = useState(false);
 
-    if (!liveMatch) return;
-
-    const resume = window.confirm("Resume unfinished match?");
-
-    if (!resume) return;
-
-    const m = JSON.parse(liveMatch);
-
-    setTeamAName(m.teamAName || "Team A");
-    setTeamBName(m.teamBName || "Team B");
-    setTeamAPlayers(m.teamAPlayers || []);
-    setTeamBPlayers(m.teamBPlayers || []);
-
-    setMatchOvers(m.matchOvers || 6);
-    setTossWinner(m.tossWinner || "A");
-    setTossDecision(m.tossDecision || "bat");
-    setLastManStanding(m.lastManStanding ?? true);
-
-    setInningsNumber(m.inningsNumber || 1);
-    setBattingTeam(m.battingTeam || "A");
-
-    setScore(m.score || 0);
-    setWickets(m.wickets || 0);
-    setBalls(m.balls || 0);
-    setExtras(m.extras || 0);
-
-    setFirstInnings(m.firstInnings || null);
-    setResult(m.result || "");
-
-    setStrikerId(m.strikerId || "");
-    setNonStrikerId(m.nonStrikerId || "");
-
-    setTimeline(m.timeline || []);
-    setBallHistory(m.ballHistory || []);
-
-    setMatchStarted(true);
-    setMatchFinished(false);
-  }, []);
+useEffect(() => {
+  const liveMatch = localStorage.getItem(LIVE_MATCH_KEY);
+  setHasSavedLiveMatch(Boolean(liveMatch));
+}, []);
 
   useEffect(() => {
     localStorage.setItem(
@@ -843,10 +852,17 @@ export default function App() {
                     <span>Allow Last Man Standing</span>
                   </label>
 
+{hasSavedLiveMatch && !matchStarted && (
+  <button
+    onClick={resumeSavedMatch}
+    className="mt-6 w-full bg-yellow-500 text-black p-5 rounded-2xl text-xl font-black"
+  >
+    Resume Unfinished Match
+  </button>
+)}
                   <button
                     onClick={startMatch}
-                    className="mt-6 w-full bg-green-500 hover:bg-green-600 p-5 rounded-2xl text-xl font-black"
-                  >
+                    className="mt-6 w-full bg-green-500 hover:bg-green-600 p-5 rounded-2xl text-xl font-black">
                     Start Match
                   </button>
                 </div>
@@ -1065,10 +1081,18 @@ export default function App() {
                   />
                 </div>
 
+{hasSavedLiveMatch && (
+  <button
+    onClick={resumeSavedMatch}
+    className="mt-8 w-full bg-yellow-500 text-black p-5 rounded-2xl text-xl font-black"
+  >
+    Resume Unfinished Match
+  </button>
+)}
                 <button
                   onClick={saveMatchToHistory}
                   disabled={savingMatch}
-                  className="mt-8 w-full bg-blue-500 p-5 rounded-2xl text-xl font-black disabled:opacity-50"
+                  className="mt-4 w-full bg-blue-500 p-5 rounded-2xl text-xl font-black disabled:opacity-50"
                 >
                   {savingMatch ? "Saving..." : "Save Match to History"}
                 </button>
