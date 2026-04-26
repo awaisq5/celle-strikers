@@ -7,7 +7,6 @@ import {
   getDocs,
   orderBy,
   query,
-  serverTimestamp,
 } from "firebase/firestore";
 
 import { db } from "./firebase";
@@ -125,31 +124,38 @@ export default function App() {
     [currentPlayers, nonStrikerId]
   );
 
-  async function loadMatchHistory() {
-    try {
-      const q = query(collection(db, "matches"), orderBy("createdAt", "desc"));
-      const snapshot = await getDocs(q);
+async function loadMatchHistory() {
+  try {
+    const q = query(collection(db, "matches"), orderBy("createdAtMs", "desc"));
+    const snapshot = await getDocs(q);
 
-      const matches = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
+    const matches = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
 
-      setMatchHistory(matches);
-    } catch (error) {
-      console.error("Error loading match history:", error);
-    }
+    setMatchHistory(matches);
+  } catch (error) {
+    console.error("Error loading match history:", error);
+    alert(error.message || "Could not load match history.");
   }
+}
 
   async function saveMatchToHistory() {
-    if (!matchFinished || !firstInnings) return;
+  if (!matchFinished || !firstInnings) {
+    alert("Match is not finished yet.");
+    return;
+  }
 
-    setSavingMatch(true);
+  setSavingMatch(true);
 
-    try {
-      const today = new Date().toISOString().split("T")[0];
+  try {
+    const today = new Date().toLocaleDateString("en-CA");
 
-      const secondInnings = {
+    const savedFirstInnings = JSON.parse(JSON.stringify(firstInnings));
+
+    const savedSecondInnings = JSON.parse(
+      JSON.stringify({
         team: battingTeam,
         teamName: currentTeamName,
         score,
@@ -158,39 +164,43 @@ export default function App() {
         extras,
         players: currentPlayers,
         ballHistory,
-      };
+      })
+    );
 
-      const winner = result.includes(teamAName)
-        ? teamAName
-        : result.includes(teamBName)
-        ? teamBName
-        : "Tie";
+    const winner = result.includes(teamAName)
+      ? teamAName
+      : result.includes(teamBName)
+      ? teamBName
+      : "Tie";
 
-      const matchData = {
-        date: today,
-        teamAName,
-        teamBName,
-        overs: Number(matchOvers),
-        lastManStanding,
-        result,
-        winner,
-        firstInnings,
-        secondInnings,
-        createdAt: serverTimestamp(),
-      };
+    const matchData = {
+      date: today,
+      teamAName,
+      teamBName,
+      overs: Number(matchOvers),
+      lastManStanding,
+      result,
+      winner,
+      firstInnings: savedFirstInnings,
+      secondInnings: savedSecondInnings,
+      createdAt: new Date().toISOString(),
+      createdAtMs: Date.now(),
+    };
 
-      await addDoc(collection(db, "matches"), matchData);
+    await addDoc(collection(db, "matches"), matchData);
 
-      alert("Match saved to history!");
-      await loadMatchHistory();
-      setActiveTab("history");
-    } catch (error) {
-      console.error("Error saving match:", error);
-      alert("Could not save match. Check Firebase rules/config.");
-    } finally {
-      setSavingMatch(false);
-    }
+    alert("Match saved to history!");
+
+    await loadMatchHistory();
+
+    setActiveTab("history");
+  } catch (error) {
+    console.error("Error saving match:", error);
+    alert(error.message || "Could not save match.");
+  } finally {
+    setSavingMatch(false);
   }
+}
 
   function addPlayerToTeam(team) {
     if (team === "A") {
