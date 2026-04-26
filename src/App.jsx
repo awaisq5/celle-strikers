@@ -1,15 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import "./index.css";
 
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import {
   addDoc,
   collection,
+  deleteDoc,
+  doc,
   getDocs,
   orderBy,
   query,
 } from "firebase/firestore";
 
-import { db } from "./firebase";
+import { auth, db } from "./firebase";
+import Auth from "./components/Auth";
+import PlayerStats from "./components/PlayerStats";
 
 const STORAGE_KEY = "celle-strikers-v2";
 
@@ -78,6 +83,9 @@ export default function App() {
   const [matchHistory, setMatchHistory] = useState([]);
   const [savingMatch, setSavingMatch] = useState(false);
 
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
 
@@ -105,8 +113,19 @@ export default function App() {
   }, [teamAName, teamBName, teamAPlayers, teamBPlayers, matchOvers]);
 
   useEffect(() => {
-    loadMatchHistory();
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setAuthLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (user) {
+      loadMatchHistory();
+    }
+  }, [user]);
 
   const currentPlayers = battingTeam === "A" ? teamAPlayers : teamBPlayers;
   const currentTeamName = battingTeam === "A" ? teamAName : teamBName;
@@ -124,83 +143,94 @@ export default function App() {
     [currentPlayers, nonStrikerId]
   );
 
-async function loadMatchHistory() {
-  try {
-    const q = query(collection(db, "matches"), orderBy("createdAtMs", "desc"));
-    const snapshot = await getDocs(q);
+  async function loadMatchHistory() {
+    try {
+      const q = query(collection(db, "matches"), orderBy("createdAtMs", "desc"));
+      const snapshot = await getDocs(q);
 
-    const matches = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
+      const matches = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
 
-    setMatchHistory(matches);
-  } catch (error) {
-    console.error("Error loading match history:", error);
-    alert(error.message || "Could not load match history.");
+      setMatchHistory(matches);
+    } catch (error) {
+      console.error("Error loading match history:", error);
+      alert(error.message || "Could not load match history.");
+    }
   }
-}
 
   async function saveMatchToHistory() {
-  if (!matchFinished || !firstInnings) {
-    alert("Match is not finished yet.");
-    return;
+    if (!matchFinished || !firstInnings) {
+      alert("Match is not finished yet.");
+      return;
+    }
+
+    setSavingMatch(true);
+
+    try {
+      const today = new Date().toLocaleDateString("en-CA");
+
+      const savedFirstInnings = JSON.parse(JSON.stringify(firstInnings));
+
+      const savedSecondInnings = JSON.parse(
+        JSON.stringify({
+          team: battingTeam,
+          teamName: currentTeamName,
+          score,
+          wickets,
+          balls,
+          extras,
+          players: currentPlayers,
+          ballHistory,
+        })
+      );
+
+      const winner = result.includes(teamAName)
+        ? teamAName
+        : result.includes(teamBName)
+        ? teamBName
+        : "Tie";
+
+      const matchData = {
+        date: today,
+        teamAName,
+        teamBName,
+        overs: Number(matchOvers),
+        lastManStanding,
+        result,
+        winner,
+        firstInnings: savedFirstInnings,
+        secondInnings: savedSecondInnings,
+        createdAt: new Date().toISOString(),
+        createdAtMs: Date.now(),
+        savedBy: user?.email || "unknown",
+      };
+
+      await addDoc(collection(db, "matches"), matchData);
+
+      alert("Match saved to history!");
+      await loadMatchHistory();
+      setActiveTab("history");
+    } catch (error) {
+      console.error("Error saving match:", error);
+      alert(error.message || "Could not save match.");
+    } finally {
+      setSavingMatch(false);
+    }
   }
 
-  setSavingMatch(true);
+  async function deleteMatch(matchId) {
+    const confirmed = confirm("Delete this match from history?");
+    if (!confirmed) return;
 
-  try {
-    const today = new Date().toLocaleDateString("en-CA");
-
-    const savedFirstInnings = JSON.parse(JSON.stringify(firstInnings));
-
-    const savedSecondInnings = JSON.parse(
-      JSON.stringify({
-        team: battingTeam,
-        teamName: currentTeamName,
-        score,
-        wickets,
-        balls,
-        extras,
-        players: currentPlayers,
-        ballHistory,
-      })
-    );
-
-    const winner = result.includes(teamAName)
-      ? teamAName
-      : result.includes(teamBName)
-      ? teamBName
-      : "Tie";
-
-    const matchData = {
-      date: today,
-      teamAName,
-      teamBName,
-      overs: Number(matchOvers),
-      lastManStanding,
-      result,
-      winner,
-      firstInnings: savedFirstInnings,
-      secondInnings: savedSecondInnings,
-      createdAt: new Date().toISOString(),
-      createdAtMs: Date.now(),
-    };
-
-    await addDoc(collection(db, "matches"), matchData);
-
-    alert("Match saved to history!");
-
-    await loadMatchHistory();
-
-    setActiveTab("history");
-  } catch (error) {
-    console.error("Error saving match:", error);
-    alert(error.message || "Could not save match.");
-  } finally {
-    setSavingMatch(false);
+    try {
+      await deleteDoc(doc(db, "matches", matchId));
+      await loadMatchHistory();
+    } catch (error) {
+      alert(error.message);
+    }
   }
-}
 
   function addPlayerToTeam(team) {
     if (team === "A") {
@@ -547,15 +577,38 @@ async function loadMatchHistory() {
     setBallHistory([]);
   }
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
+        Loading...
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Auth />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-white p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
         <header className="mb-8 bg-gradient-to-r from-green-600 to-slate-900 p-6 rounded-3xl shadow-xl">
           <h1 className="text-4xl md:text-6xl font-black">Celle Strikers</h1>
           <p className="text-green-100 mt-2">Sunday Cricket Scorebook</p>
+
+          <div className="mt-4 flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
+            <p className="text-sm text-green-100">Logged in as {user.email}</p>
+
+            <button
+              onClick={() => signOut(auth)}
+              className="bg-slate-900 px-5 py-3 rounded-xl font-bold"
+            >
+              Logout
+            </button>
+          </div>
         </header>
 
-        <div className="flex gap-3 mb-6">
+        <div className="flex flex-wrap gap-3 mb-6">
           <button
             onClick={() => setActiveTab("score")}
             className={`px-5 py-3 rounded-xl font-bold ${
@@ -572,6 +625,15 @@ async function loadMatchHistory() {
             }`}
           >
             Match History
+          </button>
+
+          <button
+            onClick={() => setActiveTab("stats")}
+            className={`px-5 py-3 rounded-xl font-bold ${
+              activeTab === "stats" ? "bg-green-500" : "bg-slate-800"
+            }`}
+          >
+            Player Stats
           </button>
         </div>
 
@@ -608,9 +670,7 @@ async function loadMatchHistory() {
 
                   <div className="grid md:grid-cols-3 gap-4">
                     <div>
-                      <label className="block mb-2 text-slate-300">
-                        Overs
-                      </label>
+                      <label className="block mb-2 text-slate-300">Overs</label>
                       <input
                         type="number"
                         min="1"
@@ -635,9 +695,7 @@ async function loadMatchHistory() {
                     </div>
 
                     <div>
-                      <label className="block mb-2 text-slate-300">
-                        Decision
-                      </label>
+                      <label className="block mb-2 text-slate-300">Decision</label>
                       <select
                         value={tossDecision}
                         onChange={(e) => setTossDecision(e.target.value)}
@@ -672,9 +730,7 @@ async function loadMatchHistory() {
               <div className="grid lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 bg-slate-900 p-6 rounded-3xl">
                   <p className="text-green-400">Innings {inningsNumber}</p>
-                  <h2 className="text-3xl font-black mb-1">
-                    {currentTeamName}
-                  </h2>
+                  <h2 className="text-3xl font-black mb-1">{currentTeamName}</h2>
                   <p className="text-slate-400 mb-4">
                     Bowling: {bowlingTeamName}
                   </p>
@@ -697,9 +753,7 @@ async function loadMatchHistory() {
 
                   <div className="grid md:grid-cols-2 gap-4 mb-6">
                     <div>
-                      <label className="block mb-2 text-slate-300">
-                        Striker
-                      </label>
+                      <label className="block mb-2 text-slate-300">Striker</label>
                       <select
                         value={strikerId}
                         onChange={(e) => setStrikerId(e.target.value)}
@@ -867,8 +921,11 @@ async function loadMatchHistory() {
           <MatchHistory
             matchHistory={matchHistory}
             reloadHistory={loadMatchHistory}
+            deleteMatch={deleteMatch}
           />
         )}
+
+        {activeTab === "stats" && <PlayerStats matchHistory={matchHistory} />}
       </div>
     </div>
   );
@@ -1000,7 +1057,7 @@ function SummaryBox({ title, score, wickets, balls, extras, players }) {
   );
 }
 
-function MatchHistory({ matchHistory, reloadHistory }) {
+function MatchHistory({ matchHistory, reloadHistory, deleteMatch }) {
   const groupedMatches = matchHistory.reduce((groups, match) => {
     const date = match.date || "Unknown date";
 
@@ -1030,8 +1087,12 @@ function MatchHistory({ matchHistory, reloadHistory }) {
       ) : (
         <div className="space-y-8">
           {Object.entries(groupedMatches).map(([date, matches]) => {
-            const teamAWins = matches.filter((m) => m.winner === m.teamAName).length;
-            const teamBWins = matches.filter((m) => m.winner === m.teamBName).length;
+            const teamAWins = matches.filter(
+              (m) => m.winner === m.teamAName
+            ).length;
+            const teamBWins = matches.filter(
+              (m) => m.winner === m.teamBName
+            ).length;
             const ties = matches.filter((m) => m.winner === "Tie").length;
 
             return (
@@ -1039,8 +1100,8 @@ function MatchHistory({ matchHistory, reloadHistory }) {
                 <div className="mb-4 bg-slate-800 p-4 rounded-2xl">
                   <h3 className="text-2xl font-black">{date}</h3>
                   <p className="text-slate-300">
-                    {matches.length} match(es) played | Team A wins: {teamAWins} |
-                    Team B wins: {teamBWins} | Ties: {ties}
+                    {matches.length} match(es) played | Team A wins:{" "}
+                    {teamAWins} | Team B wins: {teamBWins} | Ties: {ties}
                   </p>
                 </div>
 
@@ -1057,7 +1118,18 @@ function MatchHistory({ matchHistory, reloadHistory }) {
                           </p>
                         </div>
 
-                        <p className="text-slate-300">Overs: {match.overs}</p>
+                        <div className="flex items-center gap-3">
+                          <p className="text-slate-300">
+                            Overs: {match.overs}
+                          </p>
+
+                          <button
+                            onClick={() => deleteMatch(match.id)}
+                            className="bg-red-500 px-4 py-2 rounded-xl font-bold"
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </div>
 
                       <div className="grid md:grid-cols-2 gap-4 mt-4">
