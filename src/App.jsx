@@ -726,28 +726,28 @@ useEffect(() => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white p-4 md:p-8">
-      <div className="max-w-6xl mx-auto">
-        <header className="mb-8 bg-gradient-to-r from-green-600 to-slate-900 p-6 rounded-3xl shadow-xl">
-          <h1 className="text-4xl md:text-6xl font-black">Celle Strikers</h1>
-          <p className="text-green-100 mt-2">Sunday Cricket Scorebook</p>
+    <div className="min-h-screen bg-slate-950 text-white p-2 md:p-2">
+      <div className="max-w-4xl mx-auto">
+        <header className="mb-2 bg-gradient-to-r from-green-600 to-slate-900 p-3 rounded-3xl shadow-xl">
+          <h1 className="text-4xl md:text-3xl font-black">Celle Strikers</h1>
+          <p className="text-green-100 mt-1">Sunday Cricket Scorebook</p>
 
           <div className="mt-4 flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
             <p className="text-sm text-green-100">Logged in as {user.email}</p>
 
             <button
               onClick={() => signOut(auth)}
-              className="bg-slate-900 px-5 py-3 rounded-xl font-bold"
+              className="bg-slate-900 px-3 py-3 rounded-xl font-bold"
             >
               Logout
             </button>
           </div>
         </header>
 
-        <div className="flex flex-wrap gap-3 mb-6">
+        <div className="flex flex-wrap gap-3 mb-2">
           <button
             onClick={() => setActiveTab("score")}
-            className={`px-5 py-3 rounded-xl font-bold ${
+            className={`px-3 py-3 rounded-xl font-bold ${
               activeTab === "score" ? "bg-green-500" : "bg-slate-800"
             }`}
           >
@@ -756,7 +756,7 @@ useEffect(() => {
 
           <button
             onClick={() => setActiveTab("history")}
-            className={`px-5 py-3 rounded-xl font-bold ${
+            className={`px-3 py-3 rounded-xl font-bold ${
               activeTab === "history" ? "bg-green-500" : "bg-slate-800"
             }`}
           >
@@ -765,7 +765,7 @@ useEffect(() => {
 
           <button
             onClick={() => setActiveTab("stats")}
-            className={`px-5 py-3 rounded-xl font-bold ${
+            className={`px-3 py-3 rounded-xl font-bold ${
               activeTab === "stats" ? "bg-green-500" : "bg-slate-800"
             }`}
           >
@@ -851,15 +851,14 @@ useEffect(() => {
                     />
                     <span>Allow Last Man Standing</span>
                   </label>
-
-{hasSavedLiveMatch && !matchStarted && (
-  <button
-    onClick={resumeSavedMatch}
-    className="mt-6 w-full bg-yellow-500 text-black p-5 rounded-2xl text-xl font-black"
-  >
-    Resume Unfinished Match
-  </button>
-)}
+                  {hasSavedLiveMatch && !matchStarted && (
+                    <button
+                      onClick={resumeSavedMatch}
+                      className="mt-6 w-full bg-yellow-500 text-black p-5 rounded-2xl text-xl font-black"
+                    >
+                      Resume Unfinished Match
+                    </button>
+                  )}
                   <button
                     onClick={startMatch}
                     className="mt-6 w-full bg-green-500 hover:bg-green-600 p-5 rounded-2xl text-xl font-black">
@@ -870,11 +869,11 @@ useEffect(() => {
             )}
 
             {matchStarted && !matchFinished && (
-              <div className="grid lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 bg-slate-900 p-6 rounded-3xl">
+              <div className="grid lg:grid-cols-3 gap-3">
+                <div className="lg:col-span-2 bg-slate-900 p-4 rounded-3xl">
                   <p className="text-green-400">Innings {inningsNumber}</p>
                   <h2 className="text-3xl font-black mb-1">{currentTeamName}</h2>
-                  <p className="text-slate-400 mb-4">
+                  <p className="text-slate-400 mb-1">
                     Bowling: {bowlingTeamName}
                   </p>
 
@@ -884,8 +883,8 @@ useEffect(() => {
                     </p>
                   )}
 
-                  <div className="bg-slate-800 p-6 rounded-3xl mb-6">
-                    <h3 className="text-6xl font-black">
+                  <div className="bg-slate-800 p-3 rounded-3xl mb-1">
+                    <h3 className="text-5xl font-black">
                       {score}/{wickets}
                     </h3>
                     <p className="text-slate-300 mt-2">
@@ -894,9 +893,9 @@ useEffect(() => {
                     <p className="text-slate-300">Extras: {extras}</p>
                   </div>
 
-                  <div className="grid md:grid-cols-2 gap-4 mb-6">
+                  <div className="grid md:grid-cols-2 gap-4 mb-3">
                     <div>
-                      <label className="block mb-2 text-slate-300">Striker</label>
+                      <label className="block mb-1 text-slate-300">Striker</label>
                       <select
                         value={strikerId}
                         onChange={(e) => setStrikerId(e.target.value)}
@@ -913,7 +912,7 @@ useEffect(() => {
                     </div>
 
                     <div>
-                      <label className="block mb-2 text-slate-300">
+                      <label className="block mb-1 text-slate-300">
                         Non-Striker
                       </label>
                       <select
@@ -929,54 +928,6 @@ useEffect(() => {
                             </option>
                           ))}
                       </select>
-                    </div>
-                  </div>
-
-                  <div className="mb-4 bg-slate-800 p-4 rounded-2xl">
-                    <p>
-                      Current pair:{" "}
-                      <strong>{selectedStriker?.name || "N/A"}</strong> and{" "}
-                      <strong>{selectedNonStriker?.name || "N/A"}</strong>
-                    </p>
-                  </div>
-
-                  <div className="bg-slate-800 p-4 rounded-2xl mb-4">
-                    <h3 className="font-bold mb-3">
-                      Manage Players During Match
-                    </h3>
-
-                    <div className="flex gap-2">
-                      <input
-                        value={latePlayerInput}
-                        onChange={(e) => setLatePlayerInput(e.target.value)}
-                        placeholder={`Add late player to ${currentTeamName}`}
-                        className="flex-1 p-3 rounded-xl bg-slate-900"
-                      />
-
-                      <button
-                        onClick={addLatePlayerToCurrentTeam}
-                        className="bg-green-500 px-5 rounded-xl font-bold"
-                      >
-                        Add Player
-                      </button>
-                    </div>
-
-                    <div className="mt-4 space-y-2">
-                      {currentPlayers.map((player) => (
-                        <div
-                          key={player.id}
-                          className="flex justify-between bg-slate-900 p-3 rounded-xl"
-                        >
-                          <span>{player.name}</span>
-
-                          <button
-                            onClick={() => removeCurrentTeamPlayer(player)}
-                            className="text-red-400"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      ))}
                     </div>
                   </div>
 
@@ -1024,6 +975,48 @@ useEffect(() => {
                       Undo Last Ball
                     </button>
                   </div>
+
+                  <div className="bg-slate-800 p-4 rounded-2xl mt-3 mb-1">
+                    <h3 className="font-bold mb-3">
+                      Manage Players During Match
+                    </h3>
+
+                    <div className="flex gap-2">
+                      <input
+                        value={latePlayerInput}
+                        onChange={(e) => setLatePlayerInput(e.target.value)}
+                        placeholder={`Add late player to ${currentTeamName}`}
+                        className="flex-1 p-3 rounded-xl bg-slate-900"
+                      />
+
+                      <button
+                        onClick={addLatePlayerToCurrentTeam}
+                        className="bg-green-500 px-5 rounded-xl font-bold"
+                      >
+                        Add Player
+                      </button>
+                    </div>
+
+                    <div className="mt-4 space-y-2">
+                      {currentPlayers.map((player) => (
+                        <div
+                          key={player.id}
+                          className="flex justify-between bg-slate-900 p-3 rounded-xl"
+                        >
+                          <span>{player.name}</span>
+
+                          <button
+                            onClick={() => removeCurrentTeamPlayer(player)}
+                            className="text-red-400"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+
 
                   {inningsNumber === 1 && (
                     <button
@@ -1080,15 +1073,14 @@ useEffect(() => {
                     players={currentPlayers}
                   />
                 </div>
-
-{hasSavedLiveMatch && (
-  <button
-    onClick={resumeSavedMatch}
-    className="mt-8 w-full bg-yellow-500 text-black p-5 rounded-2xl text-xl font-black"
-  >
-    Resume Unfinished Match
-  </button>
-)}
+                  {hasSavedLiveMatch && (
+                    <button
+                      onClick={resumeSavedMatch}
+                      className="mt-8 w-full bg-yellow-500 text-black p-5 rounded-2xl text-xl font-black"
+                    >
+                      Resume Unfinished Match
+                    </button>
+                  )}
                 <button
                   onClick={saveMatchToHistory}
                   disabled={savingMatch}
@@ -1122,25 +1114,23 @@ useEffect(() => {
   );
 }
 
-function TeamBox({
-  teamName,
-  setTeamName,
-  input,
-  setInput,
-  players,
-  addPlayer,
-  removePlayer,
-  color,
-}) {
-  return (
-    <div className="bg-slate-900 p-6 rounded-3xl">
-      <input
-        value={teamName}
-        onChange={(e) => setTeamName(e.target.value)}
-        className="w-full mb-4 p-3 rounded-xl bg-slate-800 border border-slate-700 text-xl font-bold"
-      />
-
-      <div className="flex gap-2 mb-4">
+    function TeamBox({
+      teamName,
+      setTeamName,
+      input,
+      setInput,
+      players,
+      addPlayer,
+      removePlayer,
+      color,
+    }) {
+      return (
+        <div className="bg-slate-900 p-6 rounded-3xl">
+          <input
+            value={teamName}
+            onChange={(e) => setTeamName(e.target.value)}
+            className="w-full mb-4 p-3 rounded-xl bg-slate-800 border border-slate-700 text-xl font-bold"/>
+        <div className="flex gap-2 mb-4">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
