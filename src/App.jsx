@@ -713,6 +713,27 @@ useEffect(() => {
     localStorage.removeItem(LIVE_MATCH_KEY);
   }
 
+function getThisOverTimeline() {
+  const thisOver = [];
+  let legalBallsInCurrentOver = balls % 6;
+
+  if (legalBallsInCurrentOver === 0 && balls > 0) {
+    return [];
+  }
+
+  for (let i = timeline.length - 1; i >= 0; i--) {
+    thisOver.unshift(timeline[i]);
+
+    if (timeline[i] !== "WD" && timeline[i] !== "NB") {
+      legalBallsInCurrentOver--;
+    }
+
+    if (legalBallsInCurrentOver === 0) break;
+  }
+
+  return thisOver;
+}
+
   if (authLoading) {
     return (
       <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
@@ -891,6 +912,14 @@ useEffect(() => {
                       Overs: {formatOvers(balls)} / {matchOvers}
                     </p>
                     <p className="text-slate-300">Extras: {extras}</p>
+                    <p className="text-slate-300 mt-2">
+                      This Over:{" "}
+                      <span className="text-white font-bold">
+                        {getThisOverTimeline().length > 0
+                          ? getThisOverTimeline().join(" | ")
+                          : "New over"}
+                      </span>
+                    </p>
                   </div>
 
                   <div className="grid md:grid-cols-2 gap-4 mb-3">
@@ -899,14 +928,14 @@ useEffect(() => {
                       <select
                         value={strikerId}
                         onChange={(e) => setStrikerId(e.target.value)}
-                        className="w-full p-3 rounded-xl bg-slate-800"
+                        className="font-bold text-white w-full p-3 rounded-xl bg-slate-800"
                       >
                         {currentPlayers
                           .filter((player) => !player.out)
                           .map((player) => (
-                            <option key={player.id} value={player.id}>
-                              {player.name}
-                            </option>
+                    <option key={player.id} value={player.id}>
+                      {player.name} {player.id === strikerId ? "*" : ""}
+                    </option>
                           ))}
                       </select>
                     </div>
