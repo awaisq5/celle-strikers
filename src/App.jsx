@@ -16,13 +16,14 @@ import { auth, db } from "./firebase";
 import Auth from "./components/Auth";
 import PlayerStats from "./components/PlayerStats";
 
-const STORAGE_KEY = "celle-strikers-v2";
+const STORAGE_KEY = "celle-strikers-v3";
 const LIVE_MATCH_KEY = "celle-strikers-live-match";
 
-function createPlayer(name) {
+function createPlayer(name, type = "regular") {
   return {
     id: crypto.randomUUID(),
     name,
+    type,
     runs: 0,
     balls: 0,
     fours: 0,
@@ -46,16 +47,24 @@ function formatOvers(balls) {
   return `${Math.floor(balls / 6)}.${balls % 6}`;
 }
 
+function isExtraBall(item) {
+  return item === "WD" || item === "NB";
+}
+
 export default function App() {
   const [teamAName, setTeamAName] = useState("Team A");
   const [teamBName, setTeamBName] = useState("Team B");
 
-  const [teamAPlayers, setTeamAPlayers] = useState([]);
-  const [teamBPlayers, setTeamBPlayers] = useState([]);
+  const [playerPool, setPlayerPool] = useState([]);
+  const [teamAIds, setTeamAIds] = useState([]);
+  const [teamBIds, setTeamBIds] = useState([]);
 
-  const [teamAInput, setTeamAInput] = useState("");
-  const [teamBInput, setTeamBInput] = useState("");
+  const [playerInput, setPlayerInput] = useState("");
+  const [playerType, setPlayerType] = useState("regular");
+
   const [latePlayerInput, setLatePlayerInput] = useState("");
+  const [latePlayerTeam, setLatePlayerTeam] = useState("A");
+  const [selectedPoolPlayerId, setSelectedPoolPlayerId] = useState("");
 
   const [matchOvers, setMatchOvers] = useState(6);
   const [tossWinner, setTossWinner] = useState("A");
@@ -85,8 +94,20 @@ export default function App() {
   const [matchHistory, setMatchHistory] = useState([]);
   const [savingMatch, setSavingMatch] = useState(false);
 
+  const [hasSavedLiveMatch, setHasSavedLiveMatch] = useState(false);
+
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+
+  const teamAPlayers = useMemo(
+    () => teamAIds.map((id) => playerPool.find((p) => p.id === id)).filter(Boolean),
+    [teamAIds, playerPool]
+  );
+
+  const teamBPlayers = useMemo(
+    () => teamBIds.map((id) => playerPool.find((p) => p.id === id)).filter(Boolean),
+    [teamBIds, playerPool]
+  );
 
   const currentPlayers = battingTeam === "A" ? teamAPlayers : teamBPlayers;
   const currentTeamName = battingTeam === "A" ? teamAName : teamBName;
@@ -104,50 +125,6 @@ export default function App() {
     [currentPlayers, nonStrikerId]
   );
 
-function resumeSavedMatch() {
-  const liveMatch = localStorage.getItem(LIVE_MATCH_KEY);
-
-  if (!liveMatch) {
-    alert("No unfinished match found.");
-    setHasSavedLiveMatch(false);
-    return;
-  }
-
-  const m = JSON.parse(liveMatch);
-
-  setTeamAName(m.teamAName || "Team A");
-  setTeamBName(m.teamBName || "Team B");
-  setTeamAPlayers(m.teamAPlayers || []);
-  setTeamBPlayers(m.teamBPlayers || []);
-
-  setMatchOvers(m.matchOvers || 6);
-  setTossWinner(m.tossWinner || "A");
-  setTossDecision(m.tossDecision || "bat");
-  setLastManStanding(m.lastManStanding ?? true);
-
-  setInningsNumber(m.inningsNumber || 1);
-  setBattingTeam(m.battingTeam || "A");
-
-  setScore(m.score || 0);
-  setWickets(m.wickets || 0);
-  setBalls(m.balls || 0);
-  setExtras(m.extras || 0);
-
-  setFirstInnings(m.firstInnings || null);
-  setResult(m.result || "");
-
-  setStrikerId(m.strikerId || "");
-  setNonStrikerId(m.nonStrikerId || "");
-
-  setTimeline(m.timeline || []);
-  setBallHistory(m.ballHistory || []);
-
-  setMatchStarted(true);
-  setMatchFinished(false);
-  setActiveTab("score");
-  setHasSavedLiveMatch(false);
-}
-
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
 
@@ -155,18 +132,14 @@ function resumeSavedMatch() {
       const data = JSON.parse(saved);
       setTeamAName(data.teamAName || "Team A");
       setTeamBName(data.teamBName || "Team B");
-      setTeamAPlayers(data.teamAPlayers || []);
-      setTeamBPlayers(data.teamBPlayers || []);
+      setPlayerPool(data.playerPool || []);
+      setTeamAIds(data.teamAIds || []);
+      setTeamBIds(data.teamBIds || []);
       setMatchOvers(data.matchOvers || 6);
     }
+
+    setHasSavedLiveMatch(Boolean(localStorage.getItem(LIVE_MATCH_KEY)));
   }, []);
-
-const [hasSavedLiveMatch, setHasSavedLiveMatch] = useState(false);
-
-useEffect(() => {
-  const liveMatch = localStorage.getItem(LIVE_MATCH_KEY);
-  setHasSavedLiveMatch(Boolean(liveMatch));
-}, []);
 
   useEffect(() => {
     localStorage.setItem(
@@ -174,12 +147,13 @@ useEffect(() => {
       JSON.stringify({
         teamAName,
         teamBName,
-        teamAPlayers,
-        teamBPlayers,
+        playerPool,
+        teamAIds,
+        teamBIds,
         matchOvers,
       })
     );
-  }, [teamAName, teamBName, teamAPlayers, teamBPlayers, matchOvers]);
+  }, [teamAName, teamBName, playerPool, teamAIds, teamBIds, matchOvers]);
 
   useEffect(() => {
     if (!matchStarted || matchFinished) return;
@@ -187,8 +161,9 @@ useEffect(() => {
     const liveMatchData = {
       teamAName,
       teamBName,
-      teamAPlayers,
-      teamBPlayers,
+      playerPool,
+      teamAIds,
+      teamBIds,
       matchOvers,
       tossWinner,
       tossDecision,
@@ -209,11 +184,13 @@ useEffect(() => {
     };
 
     localStorage.setItem(LIVE_MATCH_KEY, JSON.stringify(liveMatchData));
+    setHasSavedLiveMatch(true);
   }, [
     teamAName,
     teamBName,
-    teamAPlayers,
-    teamBPlayers,
+    playerPool,
+    teamAIds,
+    teamBIds,
     matchOvers,
     tossWinner,
     tossDecision,
@@ -264,6 +241,51 @@ useEffect(() => {
       console.error("Error loading match history:", error);
       alert(error.message || "Could not load match history.");
     }
+  }
+
+  function resumeSavedMatch() {
+    const liveMatch = localStorage.getItem(LIVE_MATCH_KEY);
+
+    if (!liveMatch) {
+      alert("No unfinished match found.");
+      setHasSavedLiveMatch(false);
+      return;
+    }
+
+    const m = JSON.parse(liveMatch);
+
+    setTeamAName(m.teamAName || "Team A");
+    setTeamBName(m.teamBName || "Team B");
+    setPlayerPool(m.playerPool || []);
+    setTeamAIds(m.teamAIds || []);
+    setTeamBIds(m.teamBIds || []);
+
+    setMatchOvers(m.matchOvers || 6);
+    setTossWinner(m.tossWinner || "A");
+    setTossDecision(m.tossDecision || "bat");
+    setLastManStanding(m.lastManStanding ?? true);
+
+    setInningsNumber(m.inningsNumber || 1);
+    setBattingTeam(m.battingTeam || "A");
+
+    setScore(m.score || 0);
+    setWickets(m.wickets || 0);
+    setBalls(m.balls || 0);
+    setExtras(m.extras || 0);
+
+    setFirstInnings(m.firstInnings || null);
+    setResult(m.result || "");
+
+    setStrikerId(m.strikerId || "");
+    setNonStrikerId(m.nonStrikerId || "");
+
+    setTimeline(m.timeline || []);
+    setBallHistory(m.ballHistory || []);
+
+    setMatchStarted(true);
+    setMatchFinished(false);
+    setActiveTab("score");
+    setHasSavedLiveMatch(false);
   }
 
   async function saveMatchToHistory() {
@@ -338,54 +360,95 @@ useEffect(() => {
     }
   }
 
-  function addPlayerToTeam(team) {
+  function addPlayerToPool() {
+    const name = playerInput.trim();
+    if (!name) return;
+
+    const exists = playerPool.some(
+      (player) => player.name.toLowerCase() === name.toLowerCase()
+    );
+
+    if (exists) {
+      alert("Player already exists in pool.");
+      return;
+    }
+
+    setPlayerPool([...playerPool, createPlayer(name, playerType)]);
+    setPlayerInput("");
+  }
+
+  function removePlayerFromPool(playerId) {
+    const usedInMatch =
+      matchStarted &&
+      (teamAIds.includes(playerId) || teamBIds.includes(playerId));
+
+    if (usedInMatch) {
+      alert("Cannot delete a player from pool during a match. Remove from team only.");
+      return;
+    }
+
+    const confirmed = confirm("Remove player from pool completely?");
+    if (!confirmed) return;
+
+    setPlayerPool(playerPool.filter((p) => p.id !== playerId));
+    setTeamAIds(teamAIds.filter((id) => id !== playerId));
+    setTeamBIds(teamBIds.filter((id) => id !== playerId));
+  }
+
+  function addToTeam(team, playerId) {
     if (team === "A") {
-      if (!teamAInput.trim()) return;
-      setTeamAPlayers([...teamAPlayers, createPlayer(teamAInput.trim())]);
-      setTeamAInput("");
+      if (!teamAIds.includes(playerId)) {
+        setTeamAIds([...teamAIds, playerId]);
+      }
+      setTeamBIds(teamBIds.filter((id) => id !== playerId));
     }
 
     if (team === "B") {
-      if (!teamBInput.trim()) return;
-      setTeamBPlayers([...teamBPlayers, createPlayer(teamBInput.trim())]);
-      setTeamBInput("");
+      if (!teamBIds.includes(playerId)) {
+        setTeamBIds([...teamBIds, playerId]);
+      }
+      setTeamAIds(teamAIds.filter((id) => id !== playerId));
     }
   }
 
-  function addLatePlayerToCurrentTeam() {
-    if (!latePlayerInput.trim()) return;
+  function removeFromTeam(team, playerId) {
+    if (matchStarted && (playerId === strikerId || playerId === nonStrikerId)) {
+      alert("Can't remove active batter.");
+      return;
+    }
 
-    const newPlayer = createPlayer(latePlayerInput.trim());
-
-    if (battingTeam === "A") {
-      setTeamAPlayers([...teamAPlayers, newPlayer]);
+    if (team === "A") {
+      setTeamAIds(teamAIds.filter((id) => id !== playerId));
     } else {
-      setTeamBPlayers([...teamBPlayers, newPlayer]);
+      setTeamBIds(teamBIds.filter((id) => id !== playerId));
+    }
+  }
+
+  function addLateNewPlayer() {
+    const name = latePlayerInput.trim();
+    if (!name) return;
+
+    const newPlayer = createPlayer(name, "nonRegular");
+
+    setPlayerPool([...playerPool, newPlayer]);
+
+    if (latePlayerTeam === "A") {
+      setTeamAIds([...teamAIds, newPlayer.id]);
+    } else {
+      setTeamBIds([...teamBIds, newPlayer.id]);
     }
 
     setLatePlayerInput("");
   }
 
-  function removePlayer(team, id) {
-    if (team === "A") {
-      setTeamAPlayers(teamAPlayers.filter((player) => player.id !== id));
-    } else {
-      setTeamBPlayers(teamBPlayers.filter((player) => player.id !== id));
-    }
-  }
-
-  function removeCurrentTeamPlayer(player) {
-    if (player.id === strikerId || player.id === nonStrikerId) {
-      alert("Can't remove active batter.");
+  function addExistingPoolPlayerDuringMatch(team) {
+    if (!selectedPoolPlayerId) {
+      alert("Please select a player from pool.");
       return;
     }
 
-    if (player.runs > 0 || player.balls > 0 || player.out) {
-      const confirmed = confirm("Remove player with existing stats?");
-      if (!confirmed) return;
-    }
-
-    updateCurrentPlayers(currentPlayers.filter((p) => p.id !== player.id));
+    addToTeam(team, selectedPoolPlayerId);
+    setSelectedPoolPlayerId("");
   }
 
   function startMatch() {
@@ -399,8 +462,7 @@ useEffect(() => {
     const firstBattingPlayers =
       firstBattingTeam === "A" ? teamAPlayers : teamBPlayers;
 
-    setTeamAPlayers(resetPlayerStats(teamAPlayers));
-    setTeamBPlayers(resetPlayerStats(teamBPlayers));
+    setPlayerPool(resetPlayerStats(playerPool));
 
     setMatchStarted(true);
     setMatchFinished(false);
@@ -421,11 +483,12 @@ useEffect(() => {
   }
 
   function updateCurrentPlayers(updatedPlayers) {
-    if (battingTeam === "A") {
-      setTeamAPlayers(updatedPlayers);
-    } else {
-      setTeamBPlayers(updatedPlayers);
-    }
+    setPlayerPool((prevPool) =>
+      prevPool.map((player) => {
+        const updated = updatedPlayers.find((p) => p.id === player.id);
+        return updated || player;
+      })
+    );
   }
 
   function updateStriker(run, isLegalBall) {
@@ -693,6 +756,7 @@ useEffect(() => {
 
     setMatchFinished(true);
     localStorage.removeItem(LIVE_MATCH_KEY);
+    setHasSavedLiveMatch(false);
   }
 
   function resetMatchOnly() {
@@ -711,28 +775,43 @@ useEffect(() => {
     setTimeline([]);
     setBallHistory([]);
     localStorage.removeItem(LIVE_MATCH_KEY);
+    setHasSavedLiveMatch(false);
   }
 
-function getThisOverTimeline() {
-  const thisOver = [];
-  let legalBallsInCurrentOver = balls % 6;
+  function getThisOverTimeline() {
+    const thisOver = [];
+    const legalBallsInCurrentOver = balls % 6;
+    let legalBallsFound = 0;
 
-  if (legalBallsInCurrentOver === 0 && balls > 0) {
-    return [];
-  }
+    if (timeline.length === 0) return [];
 
-  for (let i = timeline.length - 1; i >= 0; i--) {
-    thisOver.unshift(timeline[i]);
+    if (legalBallsInCurrentOver === 0) {
+      for (let i = timeline.length - 1; i >= 0; i--) {
+        const item = timeline[i];
 
-    if (timeline[i] !== "WD" && timeline[i] !== "NB") {
-      legalBallsInCurrentOver--;
+        if (!isExtraBall(item)) break;
+
+        thisOver.unshift(item);
+      }
+
+      return thisOver;
     }
 
-    if (legalBallsInCurrentOver === 0) break;
-  }
+    for (let i = timeline.length - 1; i >= 0; i--) {
+      const item = timeline[i];
+      thisOver.unshift(item);
 
-  return thisOver;
-}
+      if (!isExtraBall(item)) {
+        legalBallsFound++;
+      }
+
+      if (legalBallsFound === legalBallsInCurrentOver) {
+        break;
+      }
+    }
+
+    return thisOver;
+  }
 
   if (authLoading) {
     return (
@@ -748,12 +827,13 @@ function getThisOverTimeline() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white p-2 md:p-2">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-6xl mx-auto">
         <header className="mb-2 bg-gradient-to-r from-green-600 to-slate-900 p-3 rounded-3xl shadow-xl">
-          <h1 className="text-4xl md:text-3xl font-black">Celle Strikers</h1>
-          <p className="text-green-100 mt-1">Sunday Cricket Scorebook</p>
+          <h1 className="text-4xl md:text-5xl font-black">Celle Strikers</h1>
+          <p className="text-green-100 mt-2">Sunday Cricket Scorebook</p>
+          <p className="text-black-100 mt-2 font-bold">Created by Awais</p>
 
-          <div className="mt-4 flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
+          <div className="mt-2 flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
             <p className="text-sm text-green-100">Logged in as {user.email}</p>
 
             <button
@@ -797,35 +877,42 @@ function getThisOverTimeline() {
         {activeTab === "score" && (
           <>
             {!matchStarted && (
-              <div className="space-y-6">
-                <div className="grid md:grid-cols-2 gap-6">
-                  <TeamBox
-                    teamName={teamAName}
-                    setTeamName={setTeamAName}
-                    input={teamAInput}
-                    setInput={setTeamAInput}
+              <div className="space-y-3">
+                <div className="grid lg:grid-cols-[1fr_1.2fr_1fr] gap-3">
+                  <TeamColumn
+                    title={teamAName}
+                    setTitle={setTeamAName}
                     players={teamAPlayers}
-                    addPlayer={() => addPlayerToTeam("A")}
-                    removePlayer={(id) => removePlayer("A", id)}
+                    onRemove={(id) => removeFromTeam("A", id)}
                     color="green"
                   />
 
-                  <TeamBox
-                    teamName={teamBName}
-                    setTeamName={setTeamBName}
-                    input={teamBInput}
-                    setInput={setTeamBInput}
+                  <PlayerPool
+                    playerPool={playerPool}
+                    playerInput={playerInput}
+                    setPlayerInput={setPlayerInput}
+                    playerType={playerType}
+                    setPlayerType={setPlayerType}
+                    addPlayerToPool={addPlayerToPool}
+                    addToTeam={addToTeam}
+                    removePlayerFromPool={removePlayerFromPool}
+                    teamAIds={teamAIds}
+                    teamBIds={teamBIds}
+                  />
+
+                  <TeamColumn
+                    title={teamBName}
+                    setTitle={setTeamBName}
                     players={teamBPlayers}
-                    addPlayer={() => addPlayerToTeam("B")}
-                    removePlayer={(id) => removePlayer("B", id)}
+                    onRemove={(id) => removeFromTeam("B", id)}
                     color="blue"
                   />
                 </div>
 
-                <div className="bg-slate-900 p-6 rounded-3xl">
-                  <h2 className="text-2xl font-bold mb-4">Match Setup</h2>
+                <div className="bg-slate-900 p-3 rounded-3xl">
+                  <h2 className="text-2xl font-bold mb-2">Match Setup</h2>
 
-                  <div className="grid md:grid-cols-3 gap-4">
+                  <div className="grid md:grid-cols-3 gap-3">
                     <div>
                       <label className="block mb-2 text-slate-300">Overs</label>
                       <input
@@ -864,7 +951,7 @@ function getThisOverTimeline() {
                     </div>
                   </div>
 
-                  <label className="flex items-center gap-3 mt-4 bg-slate-800 p-4 rounded-xl">
+                  <label className="flex items-center gap-3 mt-3 bg-slate-800 p-2 rounded-xl">
                     <input
                       type="checkbox"
                       checked={lastManStanding}
@@ -872,17 +959,20 @@ function getThisOverTimeline() {
                     />
                     <span>Allow Last Man Standing</span>
                   </label>
+
                   {hasSavedLiveMatch && !matchStarted && (
                     <button
                       onClick={resumeSavedMatch}
-                      className="mt-6 w-full bg-yellow-500 text-black p-5 rounded-2xl text-xl font-black"
+                      className="mt-3 w-full bg-yellow-500 text-black p-3 rounded-2xl text-xl font-black"
                     >
                       Resume Unfinished Match
                     </button>
                   )}
+
                   <button
                     onClick={startMatch}
-                    className="mt-6 w-full bg-green-500 hover:bg-green-600 p-5 rounded-2xl text-xl font-black">
+                    className="mt-3 w-full bg-green-500 hover:bg-green-600 p-3 rounded-2xl text-xl font-black"
+                  >
                     Start Match
                   </button>
                 </div>
@@ -891,27 +981,30 @@ function getThisOverTimeline() {
 
             {matchStarted && !matchFinished && (
               <div className="grid lg:grid-cols-3 gap-3">
-                <div className="lg:col-span-2 bg-slate-900 p-4 rounded-3xl">
+                <div className="lg:col-span-2 bg-slate-900 p-3 rounded-3xl">
                   <p className="text-green-400">Innings {inningsNumber}</p>
                   <h2 className="text-3xl font-black mb-1">{currentTeamName}</h2>
-                  <p className="text-slate-400 mb-1">
+                  <p className="text-slate-400 mb-2">
                     Bowling: {bowlingTeamName}
                   </p>
 
                   {inningsNumber === 2 && (
-                    <p className="mb-4 bg-yellow-500 text-black p-3 rounded-xl font-bold">
+                    <p className="mb-2 bg-yellow-500 text-black p-3 rounded-xl font-bold">
                       Target: {target}
                     </p>
                   )}
 
-                  <div className="bg-slate-800 p-3 rounded-3xl mb-1">
+                  <div className="bg-slate-800 p-3 rounded-3xl mb-3">
                     <h3 className="text-5xl font-black">
                       {score}/{wickets}
                     </h3>
-                    <p className="text-slate-300 mt-2">
+
+                    <p className="text-slate-300 mt-1">
                       Overs: {formatOvers(balls)} / {matchOvers}
                     </p>
+
                     <p className="text-slate-300">Extras: {extras}</p>
+
                     <p className="text-slate-300 mt-2">
                       This Over:{" "}
                       <span className="text-white font-bold">
@@ -922,20 +1015,20 @@ function getThisOverTimeline() {
                     </p>
                   </div>
 
-                  <div className="grid md:grid-cols-2 gap-4 mb-3">
+                  <div className="grid md:grid-cols-2 gap-3 mb-3">
                     <div>
                       <label className="block mb-1 text-slate-300">Striker</label>
                       <select
                         value={strikerId}
                         onChange={(e) => setStrikerId(e.target.value)}
-                        className="font-bold text-white w-full p-3 rounded-xl bg-slate-800"
+                        className="w-full p-3 rounded-xl bg-slate-800"
                       >
                         {currentPlayers
                           .filter((player) => !player.out)
                           .map((player) => (
-                    <option key={player.id} value={player.id}>
-                      {player.name} {player.id === strikerId ? "*" : ""}
-                    </option>
+                            <option key={player.id} value={player.id}>
+                              {player.name} {player.id === strikerId ? "*" : ""}
+                            </option>
                           ))}
                       </select>
                     </div>
@@ -965,14 +1058,14 @@ function getThisOverTimeline() {
                       <button
                         key={run}
                         onClick={() => addRuns(run)}
-                        className="bg-green-500 hover:bg-green-600 p-6 rounded-2xl text-2xl font-black"
+                        className="bg-green-500 hover:bg-green-600 p-4 rounded-2xl text-2xl font-black"
                       >
                         {run}
                       </button>
                     ))}
                   </div>
 
-                  <div className="grid md:grid-cols-5 gap-3 mt-4">
+                  <div className="grid md:grid-cols-5 gap-3 mt-3">
                     <button
                       onClick={addWide}
                       className="bg-yellow-500 text-black p-4 rounded-xl font-bold"
@@ -1005,52 +1098,25 @@ function getThisOverTimeline() {
                     </button>
                   </div>
 
-                  <div className="bg-slate-800 p-4 rounded-2xl mt-3 mb-1">
-                    <h3 className="font-bold mb-3">
-                      Manage Players During Match
-                    </h3>
-
-                    <div className="flex gap-2">
-                      <input
-                        value={latePlayerInput}
-                        onChange={(e) => setLatePlayerInput(e.target.value)}
-                        placeholder={`Add late player to ${currentTeamName}`}
-                        className="flex-1 p-3 rounded-xl bg-slate-900"
-                      />
-
-                      <button
-                        onClick={addLatePlayerToCurrentTeam}
-                        className="bg-green-500 px-5 rounded-xl font-bold"
-                      >
-                        Add Player
-                      </button>
-                    </div>
-
-                    <div className="mt-4 space-y-2">
-                      {currentPlayers.map((player) => (
-                        <div
-                          key={player.id}
-                          className="flex justify-between bg-slate-900 p-3 rounded-xl"
-                        >
-                          <span>{player.name}</span>
-
-                          <button
-                            onClick={() => removeCurrentTeamPlayer(player)}
-                            className="text-red-400"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-
+                  <LivePlayerManager
+                  teamAName={teamAName}
+                  teamBName={teamBName}
+                  teamAPlayers={teamAPlayers}
+                  teamBPlayers={teamBPlayers}
+                  latePlayerInput={latePlayerInput}
+                  setLatePlayerInput={setLatePlayerInput}
+                  latePlayerTeam={latePlayerTeam}
+                  setLatePlayerTeam={setLatePlayerTeam}
+                  addLateNewPlayer={addLateNewPlayer}
+                  removeFromTeam={removeFromTeam}
+                  strikerId={strikerId}
+                  nonStrikerId={nonStrikerId}
+                />
 
                   {inningsNumber === 1 && (
                     <button
                       onClick={() => endFirstInnings()}
-                      className="mt-6 w-full bg-blue-500 p-4 rounded-xl font-bold"
+                      className="mt-1 w-full bg-blue-500 p-4 rounded-xl font-bold"
                     >
                       End First Innings Manually
                     </button>
@@ -1059,7 +1125,7 @@ function getThisOverTimeline() {
                   {inningsNumber === 2 && (
                     <button
                       onClick={() => finishMatch(score, wickets)}
-                      className="mt-6 w-full bg-purple-500 p-4 rounded-xl font-bold"
+                      className="mt-1 w-full bg-purple-500 p-4 rounded-xl font-bold"
                     >
                       Finish Match Manually
                     </button>
@@ -1077,9 +1143,9 @@ function getThisOverTimeline() {
 
             {matchFinished && (
               <div className="bg-slate-900 p-8 rounded-3xl">
-                <h2 className="text-4xl font-black mb-4">Match Result</h2>
+                <h2 className="text-4xl font-black mb-2">Match Result</h2>
 
-                <p className="text-2xl text-green-400 font-bold mb-6">
+                <p className="text-2xl text-green-400 font-bold mb-3">
                   {result}
                 </p>
 
@@ -1102,25 +1168,27 @@ function getThisOverTimeline() {
                     players={currentPlayers}
                   />
                 </div>
-                  {hasSavedLiveMatch && (
-                    <button
-                      onClick={resumeSavedMatch}
-                      className="mt-8 w-full bg-yellow-500 text-black p-5 rounded-2xl text-xl font-black"
-                    >
-                      Resume Unfinished Match
-                    </button>
-                  )}
+
+                {hasSavedLiveMatch && (
+                  <button
+                    onClick={resumeSavedMatch}
+                    className="mt-1 w-full bg-yellow-500 text-black p-5 rounded-2xl text-xl font-black"
+                  >
+                    Resume Unfinished Match
+                  </button>
+                )}
+
                 <button
                   onClick={saveMatchToHistory}
                   disabled={savingMatch}
-                  className="mt-4 w-full bg-blue-500 p-5 rounded-2xl text-xl font-black disabled:opacity-50"
+                  className="mt-1 w-full bg-blue-500 p-5 rounded-2xl text-xl font-black disabled:opacity-50"
                 >
                   {savingMatch ? "Saving..." : "Save Match to History"}
                 </button>
 
                 <button
                   onClick={resetMatchOnly}
-                  className="mt-4 w-full bg-green-500 p-5 rounded-2xl text-xl font-black"
+                  className="mt-2 w-full bg-green-500 p-5 rounded-2xl text-xl font-black"
                 >
                   Start New Match
                 </button>
@@ -1143,56 +1211,228 @@ function getThisOverTimeline() {
   );
 }
 
-    function TeamBox({
-      teamName,
-      setTeamName,
-      input,
-      setInput,
-      players,
-      addPlayer,
-      removePlayer,
-      color,
-    }) {
-      return (
-        <div className="bg-slate-900 p-6 rounded-3xl">
-          <input
-            value={teamName}
-            onChange={(e) => setTeamName(e.target.value)}
-            className="w-full mb-4 p-3 rounded-xl bg-slate-800 border border-slate-700 text-xl font-bold"/>
-        <div className="flex gap-2 mb-4">
+function TeamColumn({ title, setTitle, players, onRemove, color }) {
+  return (
+    <div className="bg-slate-900 p-3 rounded-3xl">
+      <input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        className="w-full mb-2 p-3 rounded-xl bg-slate-800 border border-slate-700 text-xl font-bold"
+      />
+
+      <div className="space-y-2">
+        {players.length === 0 ? (
+          <p className="text-slate-400 bg-slate-800 p-3 rounded-xl">
+            No players selected.
+          </p>
+        ) : (
+          players.map((player) => (
+            <div
+              key={player.id}
+              className="flex justify-between bg-slate-800 p-3 rounded-xl"
+            >
+              <span>{player.name}</span>
+              <button onClick={() => onRemove(player.id)} className="text-red-400">
+                Remove
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PlayerPool({
+  playerPool,
+  playerInput,
+  setPlayerInput,
+  addPlayerToPool,
+  addToTeam,
+  removePlayerFromPool,
+  teamAIds,
+  teamBIds,
+}) {
+  const regularPlayers = playerPool.filter((p) => p.type === "regular");
+  const nonRegularPlayers = playerPool.filter((p) => p.type !== "regular");
+
+  return (
+    <div className="bg-slate-900 p-3 rounded-3xl">
+      <h2 className="text-2xl font-black mb-2">Player Pool</h2>
+
+      <div className="grid md:grid-cols-[1fr_auto] gap-2 mb-2">
         <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && addPlayer()}
-          placeholder={`Add ${teamName} player`}
+          value={playerInput}
+          onChange={(e) => setPlayerInput(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && addPlayerToPool()}
+          placeholder="Add player name"
           className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700"
         />
 
         <button
-          onClick={addPlayer}
-          className={`${
-            color === "green" ? "bg-green-500" : "bg-blue-500"
-          } px-5 rounded-xl font-bold`}
+          onClick={addPlayerToPool}
+          className="bg-green-500 px-5 rounded-xl font-bold"
         >
           Add
         </button>
       </div>
 
-      <div className="space-y-2">
-        {players.map((player) => (
-          <div
-            key={player.id}
-            className="flex justify-between bg-slate-800 p-3 rounded-xl"
-          >
-            <span>{player.name}</span>
-            <button
-              onClick={() => removePlayer(player.id)}
-              className="text-red-400"
+
+      <PoolSection
+        title="Players List"
+        players={regularPlayers}
+        addToTeam={addToTeam}
+        removePlayerFromPool={removePlayerFromPool}
+        teamAIds={teamAIds}
+        teamBIds={teamBIds}
+      />
+
+    </div>
+  );
+}
+
+function PoolSection({
+  title,
+  players,
+  addToTeam,
+  removePlayerFromPool,
+  teamAIds,
+  teamBIds,
+}) {
+  return (
+    <div className="mb-2">
+      <h3 className="font-bold text-slate-300 mb-2">{title}</h3>
+
+      <div className="space-y-1">
+        {players.length === 0 ? (
+          <p className="text-slate-500 bg-slate-800 p-3 rounded-xl">
+            No players here.
+          </p>
+        ) : (
+          players.map((player) => (
+            <div key={player.id} className="bg-slate-800 p-3 rounded-xl">
+              <div className="flex justify-between items-center gap-3">
+                <div>
+                  <p className="font-bold">{player.name}</p>
+                  <p className="text-xs text-slate-400">
+                    {teamAIds.includes(player.id)
+                      ? "In Team A"
+                      : teamBIds.includes(player.id)
+                      ? "In Team B"
+                      : "Not selected"}
+                  </p>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => addToTeam("A", player.id)}
+                    className="bg-green-500 px-3 py-2 rounded-lg font-bold"
+                  >
+                    ← A
+                  </button>
+
+                  <button
+                    onClick={() => addToTeam("B", player.id)}
+                    className="bg-blue-500 px-3 py-2 rounded-lg font-bold"
+                  >
+                    B →
+                  </button>
+
+                  <button
+                    onClick={() => removePlayerFromPool(player.id)}
+                    className="bg-red-500 px-3 py-2 rounded-lg font-bold"
+                  >
+                    X
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LivePlayerManager({
+  teamAName,
+  teamBName,
+  teamAPlayers,
+  teamBPlayers,
+  latePlayerInput,
+  setLatePlayerInput,
+  latePlayerTeam,
+  setLatePlayerTeam,
+  addLateNewPlayer,
+  removeFromTeam,
+  strikerId,
+  nonStrikerId,
+}) {
+  function PlayerList({ title, team, players }) {
+    return (
+      <div className="bg-slate-900 p-3 rounded-2xl">
+        <h4 className="font-bold mb-2">{title}</h4>
+
+        <div className="space-y-1">
+          {players.map((player) => (
+            <div
+              key={player.id}
+              className="flex justify-between bg-slate-800 p-3 rounded-xl"
             >
-              Remove
-            </button>
-          </div>
-        ))}
+              <span>{player.name}</span>
+
+              <button
+                onClick={() => {
+                  if (player.id === strikerId || player.id === nonStrikerId) {
+                    alert("Can't remove active batter.");
+                    return;
+                  }
+
+                  removeFromTeam(team, player.id);
+                }}
+                className="text-red-400"
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-slate-800 p-4 rounded-2xl mt-3 mb-2">
+      <h3 className="font-bold mb-3">Manage Players During Match</h3>
+
+      <div className="grid md:grid-cols-[1fr_auto_auto] gap-3 mb-3">
+        <input
+          value={latePlayerInput}
+          onChange={(e) => setLatePlayerInput(e.target.value)}
+          placeholder="Add new late player"
+          className="p-3 rounded-xl bg-slate-900"
+        />
+
+        <select
+          value={latePlayerTeam}
+          onChange={(e) => setLatePlayerTeam(e.target.value)}
+          className="p-3 rounded-xl bg-slate-900"
+        >
+          <option value="A">{teamAName}</option>
+          <option value="B">{teamBName}</option>
+        </select>
+
+        <button
+          onClick={addLateNewPlayer}
+          className="bg-green-500 px-5 rounded-xl font-bold"
+        >
+          Add
+        </button>
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-4">
+        <PlayerList title={teamAName} team="A" players={teamAPlayers} />
+        <PlayerList title={teamBName} team="B" players={teamBPlayers} />
       </div>
     </div>
   );
@@ -1205,9 +1445,13 @@ function ScoreCard({ title, players, strikerId, timeline }) {
 
       <div className="space-y-3">
         {players.map((player) => (
-          <div key={player.id} className="bg-slate-800 p-4 rounded-xl">
+          <div key={player.id} className="bg-slate-800 p-2 rounded-xl">
             <div className="flex justify-between">
-              <span>
+              <span
+                className={
+                  player.id === strikerId ? "font-bold text-green-400" : ""
+                }
+              >
                 {player.name}
                 {player.id === strikerId ? " *" : ""}
               </span>
@@ -1224,7 +1468,7 @@ function ScoreCard({ title, players, strikerId, timeline }) {
         ))}
       </div>
 
-      <h3 className="text-xl font-bold mt-6 mb-3">Timeline</h3>
+      <h3 className="text-xl font-bold mt-3 mb-3">Timeline</h3>
 
       <div className="flex flex-wrap gap-2">
         {timeline.map((item, index) => (
@@ -1239,18 +1483,18 @@ function ScoreCard({ title, players, strikerId, timeline }) {
 
 function SummaryBox({ title, score, wickets, balls, extras, players }) {
   return (
-    <div className="bg-slate-800 p-6 rounded-3xl">
+    <div className="bg-slate-800 p-3 rounded-3xl">
       <h3 className="text-2xl font-bold mb-2">{title}</h3>
 
       <p className="text-4xl font-black mb-2">
         {score}/{wickets}
       </p>
 
-      <p className="text-slate-300 mb-4">
+      <p className="text-slate-300 mb-2">
         Overs: {formatOvers(balls)} | Extras: {extras}
       </p>
 
-      <div className="space-y-2">
+      <div className="space-y-1">
         {players.map((player) => (
           <div
             key={player.id}
@@ -1280,7 +1524,7 @@ function MatchHistory({ matchHistory, reloadHistory, deleteMatch }) {
   }, {});
 
   return (
-    <div className="bg-slate-900 p-6 rounded-3xl">
+    <div className="bg-slate-900 p-3 rounded-3xl">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
         <h2 className="text-3xl font-black">Match History</h2>
 
@@ -1295,7 +1539,7 @@ function MatchHistory({ matchHistory, reloadHistory, deleteMatch }) {
       {matchHistory.length === 0 ? (
         <p className="text-slate-400">No matches saved yet.</p>
       ) : (
-        <div className="space-y-8">
+        <div className="space-y-4">
           {Object.entries(groupedMatches).map(([date, matches]) => {
             const teamAWins = matches.filter(
               (m) => m.winner === m.teamAName
@@ -1307,7 +1551,7 @@ function MatchHistory({ matchHistory, reloadHistory, deleteMatch }) {
 
             return (
               <div key={date}>
-                <div className="mb-4 bg-slate-800 p-4 rounded-2xl">
+                <div className="mb-2 bg-slate-800 p-4 rounded-2xl">
                   <h3 className="text-2xl font-black">{date}</h3>
                   <p className="text-slate-300">
                     {matches.length} match(es) played | Team A wins:{" "}
@@ -1342,7 +1586,7 @@ function MatchHistory({ matchHistory, reloadHistory, deleteMatch }) {
                         </div>
                       </div>
 
-                      <div className="grid md:grid-cols-2 gap-4 mt-4">
+                      <div className="grid md:grid-cols-2 gap-4 mt-2">
                         <HistoryInningsBox innings={match.firstInnings} />
                         <HistoryInningsBox innings={match.secondInnings} />
                       </div>
