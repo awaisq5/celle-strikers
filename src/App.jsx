@@ -1068,7 +1068,7 @@ export default function App() {
                   <div className="grid md:grid-cols-5 gap-3 mt-3">
                     <button
                       onClick={addWide}
-                      className="bg-yellow-500 text-black p-4 rounded-xl font-bold"
+                      className="bg-purple-500 text-black p-4 rounded-xl font-bold"
                     >
                       Wide
                     </button>
@@ -1213,7 +1213,7 @@ export default function App() {
 
 function TeamColumn({ title, setTitle, players, onRemove, color }) {
   return (
-    <div className="bg-slate-900 p-3 rounded-3xl">
+<div className={`p-3 rounded-3xl border ${color === "green" ? "bg-yellow-500 border-white-500" : "bg-blue-500 border-white-500"}`}>
       <input
         value={title}
         onChange={(e) => setTitle(e.target.value)}
@@ -1326,7 +1326,7 @@ function PoolSection({
                 <div className="flex gap-2">
                   <button
                     onClick={() => addToTeam("A", player.id)}
-                    className="bg-green-500 px-3 py-2 rounded-lg font-bold"
+                    className="bg-yellow-500 px-3 py-2 rounded-lg font-bold"
                   >
                     ← A
                   </button>
@@ -1370,9 +1370,8 @@ function LivePlayerManager({
 }) {
   function PlayerList({ title, team, players }) {
     return (
-      <div className="bg-slate-900 p-3 rounded-2xl">
-        <h4 className="font-bold mb-2">{title}</h4>
-
+      <div className={`p-3 rounded-2xl border ${team === "A" ? "bg-yellow-500 border-white-500" : "bg-blue-500 border-white-500"}`}>
+       <h4 className={`font-bold mb-2 ${team === "A" ? "text-white-500" : "text-white-500"}`}>{title}</h4>
         <div className="space-y-1">
           {players.map((player) => (
             <div
