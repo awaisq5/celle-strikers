@@ -95,6 +95,7 @@ export default function App() {
   const [savingMatch, setSavingMatch] = useState(false);
 
   const [hasSavedLiveMatch, setHasSavedLiveMatch] = useState(false);
+  const [editingFirstInnings, setEditingFirstInnings] = useState(false);
 
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -395,6 +396,31 @@ export default function App() {
     setTeamBIds(teamBIds.filter((id) => id !== playerId));
   }
 
+function giveStrikeToPlayer(player, team) {
+  if (team !== battingTeam) {
+    alert("You can only give strike to the batting team.");
+    return;
+  }
+
+  setPlayerPool((prevPool) =>
+    prevPool.map((p) =>
+      p.id === player.id ? { ...p, out: false } : p
+    )
+  );
+
+  if (player.id === nonStrikerId) {
+    const oldStriker = strikerId;
+    setStrikerId(player.id);
+    setNonStrikerId(oldStriker);
+    return;
+  }
+
+  if (player.id !== strikerId) {
+    setNonStrikerId(strikerId);
+    setStrikerId(player.id);
+  }
+}
+
   function addToTeam(team, playerId) {
     if (team === "A") {
       if (!teamAIds.includes(playerId)) {
@@ -530,7 +556,7 @@ export default function App() {
     const oversFinished = newBalls >= maxBalls;
     const targetReached = inningsNumber === 2 && newScore >= target;
 
-    if (inningsNumber === 1 && (allOut || oversFinished)) {
+if (inningsNumber === 1 && !editingFirstInnings && (allOut || oversFinished)) {
       setTimeout(() => {
         endFirstInnings(newScore, newWickets, newBalls, updatedPlayers);
       }, 200);
@@ -616,9 +642,14 @@ export default function App() {
     checkInningsEnd(newScore, wickets, balls);
   }
 
-  function addWicket() {
-    const newWickets = wickets + 1;
-    const newBalls = balls + 1;
+function addWicket() {
+  if (!strikerId) {
+    alert("No striker selected.");
+    return;
+  }
+
+  const newWickets = wickets + 1;
+  const newBalls = balls + 1;
 
     const updated = currentPlayers.map((player) => {
       if (player.id !== strikerId) return player;
@@ -683,11 +714,31 @@ export default function App() {
       return;
     }
 
-    if (last === "W") {
-      setWickets(wickets - 1);
-      setBalls(balls - 1);
-      return;
-    }
+if (last === "W") {
+  const lastBall = ballHistory[ballHistory.length - 1];
+  const outPlayerId = lastBall?.batsmanId;
+
+  setWickets(Math.max(0, wickets - 1));
+  setBalls(Math.max(0, balls - 1));
+
+  const updatedPlayers = currentPlayers.map((player) => {
+    if (player.id !== outPlayerId) return player;
+
+    return {
+      ...player,
+      out: false,
+      balls: Math.max(0, player.balls - 1),
+    };
+  });
+
+  updateCurrentPlayers(updatedPlayers);
+
+  if (outPlayerId) {
+    setStrikerId(outPlayerId);
+  }
+
+  return;
+}
 
     setScore(score - last);
     setBalls(balls - 1);
@@ -707,12 +758,53 @@ export default function App() {
     updateCurrentPlayers(updatedPlayers);
   }
 
+function goBackToFirstInnings() {
+  if (!firstInnings) return;
+
+  const confirmed = confirm(
+    "Go back to 1st innings? Current 2nd innings progress will be cleared."
+  );
+
+  if (!confirmed) return;
+
+  setEditingFirstInnings(true);
+
+  setMatchStarted(true);
+  setMatchFinished(false);
+  setInningsNumber(1);
+  setBattingTeam(firstInnings.team);
+
+  setScore(firstInnings.score);
+  setWickets(firstInnings.wickets);
+  setBalls(firstInnings.balls);
+  setExtras(firstInnings.extras);
+
+  setTimeline(firstInnings.timeline || []);
+  setBallHistory(firstInnings.ballHistory || []);
+
+  setPlayerPool((prevPool) =>
+    prevPool.map((player) => {
+      const savedPlayer = firstInnings.players.find((p) => p.id === player.id);
+      return savedPlayer || player;
+    })
+  );
+
+  const availablePlayers = firstInnings.players.filter((p) => !p.out);
+
+  setStrikerId(availablePlayers[0]?.id || "");
+  setNonStrikerId(availablePlayers[1]?.id || "");
+
+  setFirstInnings(null);
+  setResult("");
+}
+
   function endFirstInnings(
     finalScore = score,
     finalWickets = wickets,
     finalBalls = balls,
     finalPlayers = currentPlayers
   ) {
+    setEditingFirstInnings(false);
     setFirstInnings({
       team: battingTeam,
       teamName: currentTeamName,
@@ -778,6 +870,40 @@ export default function App() {
     setHasSavedLiveMatch(false);
   }
 
+function resetCurrentInnings() {
+  const confirmed = confirm("Reset current innings only?");
+  if (!confirmed) return;
+
+  const currentIds = battingTeam === "A" ? teamAIds : teamBIds;
+
+  setPlayerPool((prevPool) =>
+    prevPool.map((player) =>
+      currentIds.includes(player.id)
+        ? {
+            ...player,
+            runs: 0,
+            balls: 0,
+            fours: 0,
+            sixes: 0,
+            out: false,
+          }
+        : player
+    )
+  );
+
+  setScore(0);
+  setWickets(0);
+  setBalls(0);
+  setExtras(0);
+  setTimeline([]);
+  setBallHistory([]);
+
+  const resetPlayers = battingTeam === "A" ? teamAPlayers : teamBPlayers;
+
+  setStrikerId(resetPlayers[0]?.id || "");
+  setNonStrikerId(resetPlayers[1]?.id || "");
+}
+
   function getThisOverTimeline() {
     const thisOver = [];
     const legalBallsInCurrentOver = balls % 6;
@@ -827,7 +953,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white p-2 md:p-2">
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-4xl mx-auto">
         <header className="mb-2 bg-gradient-to-r from-green-600 to-slate-900 p-3 rounded-3xl shadow-xl">
           <h1 className="text-4xl md:text-5xl font-black">Celle Strikers</h1>
           <p className="text-green-100 mt-2">Sunday Cricket Scorebook</p>
@@ -981,14 +1107,27 @@ export default function App() {
 
             {matchStarted && !matchFinished && (
               <div className="grid lg:grid-cols-3 gap-3">
-                <div className="lg:col-span-2 bg-slate-900 p-3 rounded-3xl">
+              <div className="lg:col-span-2 bg-slate-900 p-3 rounded-3xl">
+              <div className="flex justify-between items-start gap-4 mb-4">
+                <div>
                   <p className="text-green-400">Innings {inningsNumber}</p>
                   <h2 className="text-3xl font-black mb-1">{currentTeamName}</h2>
-                  <p className="text-slate-400 mb-2">
+                  <p className="text-slate-400">
                     Bowling: {bowlingTeamName}
                   </p>
+                </div>
 
+                {inningsNumber === 2 && (
+                  <button
+                    onClick={goBackToFirstInnings}
+                    className="bg-yellow-500 text-black px-4 py-3 rounded-xl font-bold"
+                  >
+                    Go back to 1st Innings
+                  </button>
+                )}
+              </div>
                   {inningsNumber === 2 && (
+                    
                     <p className="mb-2 bg-yellow-500 text-black p-3 rounded-xl font-bold">
                       Target: {target}
                     </p>
@@ -1024,12 +1163,12 @@ export default function App() {
                         className="w-full p-3 rounded-xl bg-slate-800"
                       >
                         {currentPlayers
-                          .filter((player) => !player.out)
-                          .map((player) => (
-                            <option key={player.id} value={player.id}>
-                              {player.name} {player.id === strikerId ? "*" : ""}
-                            </option>
-                          ))}
+                      .filter((player) => !player.out && player.id !== nonStrikerId)
+                      .map((player) => (
+                        <option key={player.id} value={player.id}>
+                          {player.name} {player.id === strikerId ? "*" : ""}
+                        </option>
+                      ))}
                       </select>
                     </div>
 
@@ -1043,12 +1182,12 @@ export default function App() {
                         className="w-full p-3 rounded-xl bg-slate-800"
                       >
                         {currentPlayers
-                          .filter((player) => !player.out)
-                          .map((player) => (
-                            <option key={player.id} value={player.id}>
-                              {player.name}
-                            </option>
-                          ))}
+                        .filter((player) => !player.out && player.id !== strikerId)
+                        .map((player) => (
+                          <option key={player.id} value={player.id}>
+                            {player.name}
+                          </option>
+                        ))}
                       </select>
                     </div>
                   </div>
@@ -1068,7 +1207,7 @@ export default function App() {
                   <div className="grid md:grid-cols-5 gap-3 mt-3">
                     <button
                       onClick={addWide}
-                      className="bg-purple-500 text-black p-4 rounded-xl font-bold"
+                      className="bg-purple-500 text-white p-4 rounded-xl font-bold"
                     >
                       Wide
                     </button>
@@ -1096,36 +1235,50 @@ export default function App() {
                     >
                       Undo Last Ball
                     </button>
+
+                    <button
+                      onClick={resetCurrentInnings}
+                      className="mt-1 w-full bg-red-600 p-4 rounded-xl font-bold"
+                    >
+                      Reset Innings
+                    </button>
+
                   </div>
 
                   <LivePlayerManager
-                  teamAName={teamAName}
-                  teamBName={teamBName}
-                  teamAPlayers={teamAPlayers}
-                  teamBPlayers={teamBPlayers}
-                  latePlayerInput={latePlayerInput}
-                  setLatePlayerInput={setLatePlayerInput}
-                  latePlayerTeam={latePlayerTeam}
-                  setLatePlayerTeam={setLatePlayerTeam}
-                  addLateNewPlayer={addLateNewPlayer}
-                  removeFromTeam={removeFromTeam}
-                  strikerId={strikerId}
-                  nonStrikerId={nonStrikerId}
-                />
+                    teamAName={teamAName}
+                    teamBName={teamBName}
+                    teamAPlayers={teamAPlayers}
+                    teamBPlayers={teamBPlayers}
+                    latePlayerInput={latePlayerInput}
+                    setLatePlayerInput={setLatePlayerInput}
+                    latePlayerTeam={latePlayerTeam}
+                    setLatePlayerTeam={setLatePlayerTeam}
+                    addLateNewPlayer={addLateNewPlayer}
+                    removeFromTeam={removeFromTeam}
+                    strikerId={strikerId}
+                    nonStrikerId={nonStrikerId}
+                    battingTeam={battingTeam}
+                    giveStrikeToPlayer={giveStrikeToPlayer}
+                  />
 
-                  {inningsNumber === 1 && (
-                    <button
-                      onClick={() => endFirstInnings()}
-                      className="mt-1 w-full bg-blue-500 p-4 rounded-xl font-bold"
-                    >
-                      End First Innings Manually
-                    </button>
-                  )}
+{inningsNumber === 1 && (
+  <button
+    onClick={() => endFirstInnings()}
+    className={`mt-6 w-full p-4 rounded-xl font-bold ${
+      editingFirstInnings ? "bg-yellow-500 text-black" : "bg-blue-500"
+    }`}
+  >
+    {editingFirstInnings
+      ? "Save Edited 1st Innings / Continue to 2nd Innings"
+      : "End First Innings Manually"}
+  </button>
+)}
 
                   {inningsNumber === 2 && (
                     <button
                       onClick={() => finishMatch(score, wickets)}
-                      className="mt-1 w-full bg-purple-500 p-4 rounded-xl font-bold"
+                      className="mt-1 w-full bg-slate-500 p-4 rounded-xl font-bold"
                     >
                       Finish Match Manually
                     </button>
@@ -1214,6 +1367,14 @@ export default function App() {
 function TeamColumn({ title, setTitle, players, onRemove, color }) {
   return (
 <div className={`p-3 rounded-3xl border ${color === "green" ? "bg-yellow-500 border-white-500" : "bg-blue-500 border-white-500"}`}>
+      
+<div className="flex justify-between items-center mb-3">
+  <h3 className="font-bold">{title}</h3>
+  <span className="bg-slate-800 px-3 py-1 rounded-full font-bold">
+    {players.length}
+  </span>
+</div>
+
       <input
         value={title}
         onChange={(e) => setTitle(e.target.value)}
@@ -1253,12 +1414,22 @@ function PlayerPool({
   teamAIds,
   teamBIds,
 }) {
-  const regularPlayers = playerPool.filter((p) => p.type === "regular");
-  const nonRegularPlayers = playerPool.filter((p) => p.type !== "regular");
+
+  const availablePlayers = playerPool.filter(
+  (p) => !teamAIds.includes(p.id) && !teamBIds.includes(p.id)
+);
+
+const regularPlayers = availablePlayers.filter((p) => p.type === "regular");
+const nonRegularPlayers = availablePlayers.filter((p) => p.type !== "regular");
 
   return (
-    <div className="bg-slate-900 p-3 rounded-3xl">
-      <h2 className="text-2xl font-black mb-2">Player Pool</h2>
+    <div className="bg-slate-500 p-3 rounded-3xl">
+     <div className="flex justify-between items-center mb-4">
+  <h2 className="text-2xl font-black">Player Pool</h2>
+  <span className="bg-slate-800 px-3 py-1 rounded-full font-bold">
+    {playerPool.length}
+  </span>
+</div>
 
       <div className="grid md:grid-cols-[1fr_auto] gap-2 mb-2">
         <input
@@ -1367,6 +1538,8 @@ function LivePlayerManager({
   removeFromTeam,
   strikerId,
   nonStrikerId,
+  battingTeam,
+  giveStrikeToPlayer,
 }) {
   function PlayerList({ title, team, players }) {
     return (
@@ -1380,6 +1553,13 @@ function LivePlayerManager({
             >
               <span>{player.name}</span>
 
+  <button
+    onClick={() => giveStrikeToPlayer(player, team)}
+    className="bg-green-800 text-white-400 rounded-lg"
+  >
+    Strike*
+  </button>
+
               <button
                 onClick={() => {
                   if (player.id === strikerId || player.id === nonStrikerId) {
@@ -1391,7 +1571,7 @@ function LivePlayerManager({
                 }}
                 className="text-red-400"
               >
-                Remove
+                X
               </button>
             </div>
           ))}
@@ -1436,6 +1616,7 @@ function LivePlayerManager({
     </div>
   );
 }
+
 
 function ScoreCard({ title, players, strikerId, timeline }) {
   return (
