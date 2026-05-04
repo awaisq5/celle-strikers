@@ -569,7 +569,24 @@ if (inningsNumber === 1 && !editingFirstInnings && (allOut || oversFinished)) {
     }
   }
 
+function hasValidStriker() {
+  if (!strikerId) {
+    alert("Please select a striker before scoring.");
+    return false;
+  }
+
+  const striker = currentPlayers.find((player) => player.id === strikerId);
+
+  if (!striker || striker.out) {
+    alert("Selected striker is not available. Please choose a valid striker.");
+    return false;
+  }
+
+  return true;
+}
+
   function addRuns(run) {
+    if (!hasValidStriker()) return;
     const newScore = score + run;
     const newBalls = balls + 1;
 
@@ -643,59 +660,61 @@ if (inningsNumber === 1 && !editingFirstInnings && (allOut || oversFinished)) {
   }
 
 function addWicket() {
-  if (!strikerId) {
-    alert("No striker selected.");
-    return;
-  }
+  if (!hasValidStriker()) return;
 
   const newWickets = wickets + 1;
   const newBalls = balls + 1;
 
-    const updated = currentPlayers.map((player) => {
-      if (player.id !== strikerId) return player;
+  const updated = currentPlayers.map((player) => {
+    if (player.id !== strikerId) return player;
 
-      return {
-        ...player,
-        balls: player.balls + 1,
-        out: true,
-      };
-    });
+    return {
+      ...player,
+      balls: player.balls + 1,
+      out: true,
+    };
+  });
 
-    updateCurrentPlayers(updated);
+  updateCurrentPlayers(updated);
 
-    const nextPlayer = updated.find(
-      (player) =>
-        !player.out && player.id !== strikerId && player.id !== nonStrikerId
-    );
+  const nextPlayer = updated.find(
+    (player) =>
+      !player.out && player.id !== strikerId && player.id !== nonStrikerId
+  );
 
-    setWickets(newWickets);
-    setBalls(newBalls);
-    setTimeline([...timeline, "W"]);
+  setWickets(newWickets);
+  setBalls(newBalls);
+  setTimeline([...timeline, "W"]);
 
-    setBallHistory([
-      ...ballHistory,
-      {
-        type: "WICKET",
-        value: "W",
-        batsmanId: strikerId,
-        legalBall: true,
-        overBall: formatOvers(newBalls),
-      },
-    ]);
+  setBallHistory([
+    ...ballHistory,
+    {
+      type: "WICKET",
+      value: "W",
+      batsmanId: strikerId,
+      legalBall: true,
+      overBall: formatOvers(newBalls),
+    },
+  ]);
 
-    const overFinished = isEndOfOver(newBalls);
+  const overFinished = isEndOfOver(newBalls);
 
-    if (nextPlayer) {
-      if (overFinished) {
-        setStrikerId(nonStrikerId);
-        setNonStrikerId(nextPlayer.id);
-      } else {
-        setStrikerId(nextPlayer.id);
-      }
-    }
-
-    checkInningsEnd(score, newWickets, newBalls, updated);
+if (nextPlayer) {
+  if (overFinished) {
+    setStrikerId(nonStrikerId);
+    setNonStrikerId(nextPlayer.id);
+  } else {
+    setStrikerId(nextPlayer.id);
   }
+} else if (lastManStanding && nonStrikerId) {
+  setStrikerId(nonStrikerId);
+  setNonStrikerId("");
+} else {
+  setStrikerId("");
+}
+
+  checkInningsEnd(score, newWickets, newBalls, updated);
+}
 
   function undoLastBall() {
     if (timeline.length === 0) {
@@ -1177,7 +1196,7 @@ function resetCurrentInnings() {
                         Non-Striker
                       </label>
                       <select
-                        value={nonStrikerId}
+                        value={nonStrikerId || ""}
                         onChange={(e) => setNonStrikerId(e.target.value)}
                         className="w-full p-3 rounded-xl bg-slate-800"
                       >
@@ -1197,6 +1216,7 @@ function resetCurrentInnings() {
                       <button
                         key={run}
                         onClick={() => addRuns(run)}
+                        disabled={!strikerId}
                         className="bg-green-500 hover:bg-green-600 p-4 rounded-2xl text-2xl font-black"
                       >
                         {run}
@@ -1219,6 +1239,7 @@ function resetCurrentInnings() {
                     </button>
                     <button
                       onClick={addWicket}
+                      disabled={!strikerId}
                       className="bg-red-500 p-4 rounded-xl font-bold"
                     >
                       Wicket
@@ -1555,9 +1576,9 @@ function LivePlayerManager({
 
   <button
     onClick={() => giveStrikeToPlayer(player, team)}
-    className="bg-green-800 text-white-400 rounded-lg"
+    className="bg-green-900 text-white-400"
   >
-    Strike*
+    Give Strike*
   </button>
 
               <button

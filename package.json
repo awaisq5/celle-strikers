@@ -1,6 +1,7 @@
 {
   "name": "celle-strikers",
   "version": "1.0.0",
+  "type": "module",
   "private": true,
   "description": "A simple Sunday cricket scoring app for Celle Strikers.",
   "scripts": {
