@@ -25,21 +25,19 @@ return {
   name,
   type,
 
-  // batting
   runs: 0,
   balls: 0,
   fours: 0,
   sixes: 0,
   out: false,
 
-  // bowling 👇
   ballsBowled: 0,
+  runsConceded: 0,
+  wicketsTaken: 0,
 //  runsGiven: 0,
 //  wicketsTaken: 0,
 //  oversBowled: 0,
 //  ballsBowled: 0,
-  runsConceded: 0,
-  wicketsTaken: 0,
 };
 }
 
@@ -1492,13 +1490,6 @@ function resetCurrentInnings() {
                       Undo Last Ball
                     </button>
 
-                    <button
-                      onClick={resetCurrentInnings}
-                      className="mt-1 w-full bg-red-600 p-4 rounded-xl font-bold"
-                    >
-                      Reset Innings
-                    </button>
-
                   </div>
 
                   <LivePlayerManager
@@ -1517,6 +1508,13 @@ function resetCurrentInnings() {
                     battingTeam={battingTeam}
                     giveStrikeToPlayer={giveStrikeToPlayer}
                   />
+
+<button
+  onClick={resetCurrentInnings}
+  className="mt-4 w-full bg-red-600 p-4 rounded-xl font-bold"
+>
+  Reset Current Innings
+</button>
 
 {inningsNumber === 1 && (
   <button
