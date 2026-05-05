@@ -3,10 +3,16 @@ function formatOvers(balls) {
 }
 
 export default function PlayerStats({ matchHistory }) {
-  const stats = {};
+  const groupedByDate = {};
 
   matchHistory.forEach((match) => {
-    const playersFromTeams =
+    const date = match.date || "Unknown date";
+
+    if (!groupedByDate[date]) {
+      groupedByDate[date] = {};
+    }
+
+    const players =
       match.teamAPlayers || match.teamBPlayers
         ? [...(match.teamAPlayers || []), ...(match.teamBPlayers || [])]
         : [
@@ -14,9 +20,9 @@ export default function PlayerStats({ matchHistory }) {
             ...(match.secondInnings?.players || []),
           ];
 
-    playersFromTeams.forEach((player) => {
-      if (!stats[player.name]) {
-        stats[player.name] = {
+    players.forEach((player) => {
+      if (!groupedByDate[date][player.name]) {
+        groupedByDate[date][player.name] = {
           name: player.name,
           runs: 0,
           balls: 0,
@@ -29,62 +35,88 @@ export default function PlayerStats({ matchHistory }) {
         };
       }
 
-      stats[player.name].runs += player.runs || 0;
-      stats[player.name].balls += player.balls || 0;
-      stats[player.name].fours += player.fours || 0;
-      stats[player.name].sixes += player.sixes || 0;
-      stats[player.name].ballsBowled += player.ballsBowled || 0;
-      stats[player.name].runsConceded += player.runsConceded || 0;
-      stats[player.name].wicketsTaken += player.wicketsTaken || 0;
-      stats[player.name].matches += 1;
+      groupedByDate[date][player.name].runs += player.runs || 0;
+      groupedByDate[date][player.name].balls += player.balls || 0;
+      groupedByDate[date][player.name].fours += player.fours || 0;
+      groupedByDate[date][player.name].sixes += player.sixes || 0;
+      groupedByDate[date][player.name].ballsBowled += player.ballsBowled || 0;
+      groupedByDate[date][player.name].runsConceded += player.runsConceded || 0;
+      groupedByDate[date][player.name].wicketsTaken += player.wicketsTaken || 0;
+      groupedByDate[date][player.name].matches += 1;
     });
   });
 
-  const players = Object.values(stats).sort((a, b) => b.runs - a.runs);
+  const dateGroups = Object.entries(groupedByDate).sort(
+    ([a], [b]) => new Date(b) - new Date(a)
+  );
 
   return (
     <div className="bg-slate-900 p-6 rounded-3xl">
-      <h2 className="text-3xl font-black mb-6">Player Stats</h2>
+      <h2 className="text-3xl font-black mb-6">Player Stats by Date</h2>
 
-      {players.length === 0 ? (
+      {dateGroups.length === 0 ? (
         <p className="text-slate-400">No stats yet. Save matches first.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="text-slate-300 border-b border-slate-700">
-                <th className="p-3">Player</th>
-                <th className="p-3">Runs</th>
-                <th className="p-3">Balls</th>
-                <th className="p-3">4s</th>
-                <th className="p-3">6s</th>
-                <th className="p-3">SR</th>
-                <th className="p-3">Overs</th>
-                <th className="p-3">Runs Given</th>
-                <th className="p-3">Wkts</th>
-              </tr>
-            </thead>
+        <div className="space-y-8">
+          {dateGroups.map(([date, playersObj]) => {
+            const players = Object.values(playersObj).sort(
+              (a, b) => b.runs - a.runs
+            );
 
-            <tbody>
-              {players.map((player) => (
-                <tr key={player.name} className="border-b border-slate-800">
-                  <td className="p-3 font-bold">{player.name}</td>
-                  <td className="p-3">{player.runs}</td>
-                  <td className="p-3">{player.balls}</td>
-                  <td className="p-3">{player.fours}</td>
-                  <td className="p-3">{player.sixes}</td>
-                  <td className="p-3">
-                    {player.balls > 0
-                      ? ((player.runs / player.balls) * 100).toFixed(2)
-                      : "0.00"}
-                  </td>
-                  <td className="p-3">{formatOvers(player.ballsBowled)}</td>
-                  <td className="p-3">{player.runsConceded}</td>
-                  <td className="p-3">{player.wicketsTaken}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            return (
+              <div key={date} className="bg-slate-800 p-5 rounded-2xl">
+                <h3 className="text-2xl font-black mb-2">{date}</h3>
+                <p className="text-slate-300 mb-4">
+                  On this date, the following players performed as below:
+                </p>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="text-slate-300 border-b border-slate-700">
+                        <th className="p-3">Player</th>
+                        <th className="p-3">Matches</th>
+                        <th className="p-3">Runs</th>
+                        <th className="p-3">Balls</th>
+                        <th className="p-3">4s</th>
+                        <th className="p-3">6s</th>
+                        <th className="p-3">SR</th>
+                        <th className="p-3">Overs</th>
+                        <th className="p-3">Runs Given</th>
+                        <th className="p-3">Wkts</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {players.map((player) => (
+                        <tr
+                          key={player.name}
+                          className="border-b border-slate-700"
+                        >
+                          <td className="p-3 font-bold">{player.name}</td>
+                          <td className="p-3">{player.matches}</td>
+                          <td className="p-3">{player.runs}</td>
+                          <td className="p-3">{player.balls}</td>
+                          <td className="p-3">{player.fours}</td>
+                          <td className="p-3">{player.sixes}</td>
+                          <td className="p-3">
+                            {player.balls > 0
+                              ? ((player.runs / player.balls) * 100).toFixed(2)
+                              : "0.00"}
+                          </td>
+                          <td className="p-3">
+                            {formatOvers(player.ballsBowled)}
+                          </td>
+                          <td className="p-3">{player.runsConceded}</td>
+                          <td className="p-3">{player.wicketsTaken}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

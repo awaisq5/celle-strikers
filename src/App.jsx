@@ -1904,7 +1904,7 @@ function ScoreCard({ title, players, strikerId, timeline }) {
           </p>
 
           <p className="text-xs text-slate-500">
-            Bowl: {formatOvers(player.ballsBowled || 0)} | Runs: {player.runsConceded || 0} | Wkts: {player.wicketsTaken || 0}
+            Bowl: {formatOvers(player.ballsBowled || 0)} | Conceded Runs: {player.runsConceded || 0} | Wkts: {player.wicketsTaken || 0}
           </p>
           </div>
         ))}
@@ -1976,7 +1976,7 @@ function SummaryBox({ title, score, wickets, balls, extras, players }) {
           <div className="text-right">
             <p>{player.runs} ({player.balls})</p>
             <p className="text-xs text-slate-400">
-              Bowl: {formatOvers(player.ballsBowled || 0)} | Runs:{" "}
+              Bowl: {formatOvers(player.ballsBowled || 0)} | Conceded Runs:{" "}
               {player.runsConceded || 0} | Wkts: {player.wicketsTaken || 0}
             </p>
           </div>
