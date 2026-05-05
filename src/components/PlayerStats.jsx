@@ -1,28 +1,42 @@
+function formatOvers(balls) {
+  return `${Math.floor((balls || 0) / 6)}.${(balls || 0) % 6}`;
+}
+
 export default function PlayerStats({ matchHistory }) {
   const stats = {};
 
   matchHistory.forEach((match) => {
-    const inningsList = [match.firstInnings, match.secondInnings];
+    const playersFromTeams =
+      match.teamAPlayers || match.teamBPlayers
+        ? [...(match.teamAPlayers || []), ...(match.teamBPlayers || [])]
+        : [
+            ...(match.firstInnings?.players || []),
+            ...(match.secondInnings?.players || []),
+          ];
 
-    inningsList.forEach((innings) => {
-      innings?.players?.forEach((player) => {
-        if (!stats[player.name]) {
-          stats[player.name] = {
-            name: player.name,
-            runs: 0,
-            balls: 0,
-            fours: 0,
-            sixes: 0,
-            matches: 0,
-          };
-        }
+    playersFromTeams.forEach((player) => {
+      if (!stats[player.name]) {
+        stats[player.name] = {
+          name: player.name,
+          runs: 0,
+          balls: 0,
+          fours: 0,
+          sixes: 0,
+          ballsBowled: 0,
+          runsConceded: 0,
+          wicketsTaken: 0,
+          matches: 0,
+        };
+      }
 
-        stats[player.name].runs += player.runs || 0;
-        stats[player.name].balls += player.balls || 0;
-        stats[player.name].fours += player.fours || 0;
-        stats[player.name].sixes += player.sixes || 0;
-        stats[player.name].matches += 1;
-      });
+      stats[player.name].runs += player.runs || 0;
+      stats[player.name].balls += player.balls || 0;
+      stats[player.name].fours += player.fours || 0;
+      stats[player.name].sixes += player.sixes || 0;
+      stats[player.name].ballsBowled += player.ballsBowled || 0;
+      stats[player.name].runsConceded += player.runsConceded || 0;
+      stats[player.name].wicketsTaken += player.wicketsTaken || 0;
+      stats[player.name].matches += 1;
     });
   });
 
@@ -45,6 +59,9 @@ export default function PlayerStats({ matchHistory }) {
                 <th className="p-3">4s</th>
                 <th className="p-3">6s</th>
                 <th className="p-3">SR</th>
+                <th className="p-3">Overs</th>
+                <th className="p-3">Runs Given</th>
+                <th className="p-3">Wkts</th>
               </tr>
             </thead>
 
@@ -61,6 +78,9 @@ export default function PlayerStats({ matchHistory }) {
                       ? ((player.runs / player.balls) * 100).toFixed(2)
                       : "0.00"}
                   </td>
+                  <td className="p-3">{formatOvers(player.ballsBowled)}</td>
+                  <td className="p-3">{player.runsConceded}</td>
+                  <td className="p-3">{player.wicketsTaken}</td>
                 </tr>
               ))}
             </tbody>

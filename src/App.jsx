@@ -20,16 +20,27 @@ const STORAGE_KEY = "celle-strikers-v3";
 const LIVE_MATCH_KEY = "celle-strikers-live-match";
 
 function createPlayer(name, type = "regular") {
-  return {
-    id: crypto.randomUUID(),
-    name,
-    type,
-    runs: 0,
-    balls: 0,
-    fours: 0,
-    sixes: 0,
-    out: false,
-  };
+return {
+  id: crypto.randomUUID(),
+  name,
+  type,
+
+  // batting
+  runs: 0,
+  balls: 0,
+  fours: 0,
+  sixes: 0,
+  out: false,
+
+  // bowling 👇
+  ballsBowled: 0,
+//  runsGiven: 0,
+//  wicketsTaken: 0,
+//  oversBowled: 0,
+//  ballsBowled: 0,
+  runsConceded: 0,
+  wicketsTaken: 0,
+};
 }
 
 function resetPlayerStats(players) {
@@ -40,6 +51,9 @@ function resetPlayerStats(players) {
     fours: 0,
     sixes: 0,
     out: false,
+    ballsBowled: 0,
+    runsConceded: 0,
+    wicketsTaken: 0,
   }));
 }
 
@@ -88,7 +102,10 @@ export default function App() {
   const [strikerId, setStrikerId] = useState("");
   const [nonStrikerId, setNonStrikerId] = useState("");
   const [timeline, setTimeline] = useState([]);
+  const [currentBowlerId, setCurrentBowlerId] = useState("");
   const [ballHistory, setBallHistory] = useState([]);
+  const [lastBowlerId, setLastBowlerId] = useState("");
+  const [oversHistory, setOversHistory] = useState([]);
 
   const [activeTab, setActiveTab] = useState("score");
   const [matchHistory, setMatchHistory] = useState([]);
@@ -111,6 +128,7 @@ export default function App() {
   );
 
   const currentPlayers = battingTeam === "A" ? teamAPlayers : teamBPlayers;
+  const bowlingPlayers = battingTeam === "A" ? teamBPlayers : teamAPlayers;
   const currentTeamName = battingTeam === "A" ? teamAName : teamBName;
   const bowlingTeamName = battingTeam === "A" ? teamBName : teamAName;
   const maxBalls = Number(matchOvers) * 6;
@@ -182,6 +200,8 @@ export default function App() {
       timeline,
       ballHistory,
       matchStarted,
+      currentBowlerId,
+      lastBowlerId,
     };
 
     localStorage.setItem(LIVE_MATCH_KEY, JSON.stringify(liveMatchData));
@@ -279,6 +299,8 @@ export default function App() {
 
     setStrikerId(m.strikerId || "");
     setNonStrikerId(m.nonStrikerId || "");
+    setCurrentBowlerId(m.currentBowlerId || "");
+    setLastBowlerId(m.lastBowlerId || "");
 
     setTimeline(m.timeline || []);
     setBallHistory(m.ballHistory || []);
@@ -325,6 +347,8 @@ export default function App() {
         date: today,
         teamAName,
         teamBName,
+        teamAPlayers: JSON.parse(JSON.stringify(teamAPlayers)),
+        teamBPlayers: JSON.parse(JSON.stringify(teamBPlayers)),
         overs: Number(matchOvers),
         lastManStanding,
         result,
@@ -334,7 +358,7 @@ export default function App() {
         createdAt: new Date().toISOString(),
         createdAtMs: Date.now(),
         savedBy: user?.email || "unknown",
-      };
+        };
 
       await addDoc(collection(db, "matches"), matchData);
 
@@ -503,6 +527,7 @@ function giveStrikeToPlayer(player, team) {
     setBallHistory([]);
     setFirstInnings(null);
     setResult("");
+    setOversHistory([]);
 
     setStrikerId(firstBattingPlayers[0].id);
     setNonStrikerId(firstBattingPlayers[1].id);
@@ -585,106 +610,285 @@ function hasValidStriker() {
   return true;
 }
 
-  function addRuns(run) {
-    if (!hasValidStriker()) return;
-    const newScore = score + run;
-    const newBalls = balls + 1;
+function updateBowlerStats(bowlerId, ballsToAdd, runsToAdd, wicketsToAdd) {
+  if (!bowlerId) return;
 
-    setScore(newScore);
-    setBalls(newBalls);
-    setTimeline([...timeline, run]);
+  setPlayerPool((prevPool) =>
+    prevPool.map((p) =>
+      p.id === bowlerId
+        ? {
+            ...p,
+            ballsBowled: Math.max(0, (p.ballsBowled || 0) + ballsToAdd),
+            runsConceded: Math.max(0, (p.runsConceded || 0) + runsToAdd),
+            wicketsTaken: Math.max(0, (p.wicketsTaken || 0) + wicketsToAdd),
+          }
+        : p
+    )
+  );
+}
 
-    setBallHistory([
-      ...ballHistory,
-      {
-        type: "RUN",
-        value: run,
-        batsmanId: strikerId,
-        legalBall: true,
-        overBall: formatOvers(newBalls),
-      },
-    ]);
+function createBallSnapshot() {
+  return {
+    score,
+    wickets,
+    balls,
+    extras,
+    strikerId,
+    nonStrikerId,
+    currentBowlerId,
+    lastBowlerId,
+    playerPool,
+    timeline,
+    oversHistory,
+  };
+}
 
-    updateStriker(run, true);
+function getThisOverTimelineFromTimeline(sourceTimeline, sourceBalls) {
+  const thisOver = [];
+  const legalBallsInCurrentOver = sourceBalls % 6;
+  let legalBallsFound = 0;
 
-    const oddRun = run === 1 || run === 3;
-    const overFinished = isEndOfOver(newBalls);
+  if (sourceTimeline.length === 0) return [];
 
-    if (oddRun !== overFinished) {
-      changeStrike();
+  if (legalBallsInCurrentOver === 0) {
+    for (let i = sourceTimeline.length - 1; i >= 0; i--) {
+      const item = sourceTimeline[i];
+      thisOver.unshift(item);
+
+      if (!isExtraBall(item)) {
+        legalBallsFound++;
+      }
+
+      if (legalBallsFound === 6) break;
     }
 
-    checkInningsEnd(newScore, wickets, newBalls);
+    return thisOver;
   }
 
-  function addWide() {
-    const newScore = score + 1;
+  for (let i = sourceTimeline.length - 1; i >= 0; i--) {
+    const item = sourceTimeline[i];
+    thisOver.unshift(item);
 
-    setScore(newScore);
-    setExtras(extras + 1);
-    setTimeline([...timeline, "WD"]);
+    if (!isExtraBall(item)) {
+      legalBallsFound++;
+    }
 
-    setBallHistory([
-      ...ballHistory,
+    if (legalBallsFound === legalBallsInCurrentOver) break;
+  }
+
+  return thisOver;
+}
+
+function addRuns(run) {
+  if (!hasValidStriker()) return;
+
+  if (!currentBowlerId) {
+    alert("Select a bowler first");
+    return;
+  }
+
+  const snapshot = createBallSnapshot();
+
+  const newScore = score + run;
+  const newBalls = balls + 1;
+  const overFinished = isEndOfOver(newBalls);
+  const oddRun = run === 1 || run === 3;
+
+  const updatedPool = playerPool.map((player) => {
+    if (player.id === strikerId) {
+      return {
+        ...player,
+        runs: player.runs + run,
+        balls: player.balls + 1,
+        fours: player.fours + (run === 4 ? 1 : 0),
+        sixes: player.sixes + (run === 6 ? 1 : 0),
+      };
+    }
+
+    if (player.id === currentBowlerId) {
+      return {
+        ...player,
+        ballsBowled: (player.ballsBowled || 0) + 1,
+        runsConceded: (player.runsConceded || 0) + run,
+      };
+    }
+
+    return player;
+  });
+
+  const newTimeline = [...timeline, run];
+
+  setScore(newScore);
+  setBalls(newBalls);
+  setTimeline(newTimeline);
+  setPlayerPool(updatedPool);
+
+  setBallHistory([
+    ...ballHistory,
+    {
+      type: "RUN",
+      value: run,
+      batsmanId: strikerId,
+      bowlerId: currentBowlerId,
+      legalBall: true,
+      snapshot,
+    },
+  ]);
+
+  const updatedCurrentPlayers = battingTeam === "A"
+    ? teamAIds.map((id) => updatedPool.find((p) => p.id === id)).filter(Boolean)
+    : teamBIds.map((id) => updatedPool.find((p) => p.id === id)).filter(Boolean);
+
+  const playersLeft = updatedCurrentPlayers.filter((p) => !p.out).length;
+
+  if (overFinished) {
+    setOversHistory([
+      ...oversHistory,
       {
-        type: "WIDE",
-        value: 1,
-        batsmanId: null,
-        legalBall: false,
-        overBall: formatOvers(balls),
+        over: Math.floor(newBalls / 6),
+        bowlerId: currentBowlerId,
+        balls: getThisOverTimelineFromTimeline(newTimeline, newBalls),
       },
     ]);
 
-    checkInningsEnd(newScore, wickets, balls);
+    setLastBowlerId(currentBowlerId);
+    setCurrentBowlerId("");
   }
 
-  function addNoBall() {
-    const newScore = score + 1;
-
-    setScore(newScore);
-    setExtras(extras + 1);
-    setTimeline([...timeline, "NB"]);
-
-    setBallHistory([
-      ...ballHistory,
-      {
-        type: "NO_BALL",
-        value: 1,
-        batsmanId: null,
-        legalBall: false,
-        overBall: formatOvers(balls),
-      },
-    ]);
-
-    checkInningsEnd(newScore, wickets, balls);
+  if (playersLeft > 1 && oddRun !== overFinished) {
+    changeStrike();
   }
+
+  checkInningsEnd(newScore, wickets, newBalls, updatedCurrentPlayers);
+}
+
+function addWide() {
+  if (!currentBowlerId) {
+    alert("Select a bowler first");
+    return;
+  }
+
+  const snapshot = createBallSnapshot();
+  const newScore = score + 1;
+
+  const updatedPool = playerPool.map((player) => {
+    if (player.id === currentBowlerId) {
+      return {
+        ...player,
+        runsConceded: (player.runsConceded || 0) + 1,
+      };
+    }
+
+    return player;
+  });
+
+  setScore(newScore);
+  setExtras(extras + 1);
+  setTimeline([...timeline, "WD"]);
+  setPlayerPool(updatedPool);
+
+  setBallHistory([
+    ...ballHistory,
+    {
+      type: "WIDE",
+      value: 1,
+      bowlerId: currentBowlerId,
+      legalBall: false,
+      snapshot,
+    },
+  ]);
+
+  checkInningsEnd(newScore, wickets, balls);
+}
+
+function addNoBall() {
+  if (!currentBowlerId) {
+    alert("Select a bowler first");
+    return;
+  }
+
+  const snapshot = createBallSnapshot();
+  const newScore = score + 1;
+
+  const updatedPool = playerPool.map((player) => {
+    if (player.id === currentBowlerId) {
+      return {
+        ...player,
+        runsConceded: (player.runsConceded || 0) + 1,
+      };
+    }
+
+    return player;
+  });
+
+  setScore(newScore);
+  setExtras(extras + 1);
+  setTimeline([...timeline, "NB"]);
+  setPlayerPool(updatedPool);
+
+  setBallHistory([
+    ...ballHistory,
+    {
+      type: "NO_BALL",
+      value: 1,
+      bowlerId: currentBowlerId,
+      legalBall: false,
+      snapshot,
+    },
+  ]);
+
+  checkInningsEnd(newScore, wickets, balls);
+}
 
 function addWicket() {
   if (!hasValidStriker()) return;
 
+  if (!currentBowlerId) {
+    alert("Select a bowler first");
+    return;
+  }
+
+  const snapshot = createBallSnapshot();
+
   const newWickets = wickets + 1;
   const newBalls = balls + 1;
+  const overFinished = isEndOfOver(newBalls);
 
-  const updated = currentPlayers.map((player) => {
-    if (player.id !== strikerId) return player;
+  const updatedPool = playerPool.map((player) => {
+    if (player.id === strikerId) {
+      return {
+        ...player,
+        balls: player.balls + 1,
+        out: true,
+      };
+    }
 
-    return {
-      ...player,
-      balls: player.balls + 1,
-      out: true,
-    };
+    if (player.id === currentBowlerId) {
+      return {
+        ...player,
+        ballsBowled: (player.ballsBowled || 0) + 1,
+        wicketsTaken: (player.wicketsTaken || 0) + 1,
+      };
+    }
+
+    return player;
   });
 
-  updateCurrentPlayers(updated);
+  const updatedCurrentPlayers = battingTeam === "A"
+    ? teamAIds.map((id) => updatedPool.find((p) => p.id === id)).filter(Boolean)
+    : teamBIds.map((id) => updatedPool.find((p) => p.id === id)).filter(Boolean);
 
-  const nextPlayer = updated.find(
+  const nextPlayer = updatedCurrentPlayers.find(
     (player) =>
       !player.out && player.id !== strikerId && player.id !== nonStrikerId
   );
 
+  const newTimeline = [...timeline, "W"];
+
   setWickets(newWickets);
   setBalls(newBalls);
-  setTimeline([...timeline, "W"]);
+  setTimeline(newTimeline);
+  setPlayerPool(updatedPool);
 
   setBallHistory([
     ...ballHistory,
@@ -692,90 +896,70 @@ function addWicket() {
       type: "WICKET",
       value: "W",
       batsmanId: strikerId,
+      bowlerId: currentBowlerId,
       legalBall: true,
-      overBall: formatOvers(newBalls),
+      snapshot,
     },
   ]);
 
-  const overFinished = isEndOfOver(newBalls);
-
-if (nextPlayer) {
   if (overFinished) {
+    setOversHistory([
+      ...oversHistory,
+      {
+        over: Math.floor(newBalls / 6),
+        bowlerId: currentBowlerId,
+        balls: getThisOverTimelineFromTimeline(newTimeline, newBalls),
+      },
+    ]);
+
+    setLastBowlerId(currentBowlerId);
+    setCurrentBowlerId("");
+  }
+
+  if (nextPlayer) {
+    if (overFinished && nonStrikerId) {
+      setStrikerId(nonStrikerId);
+      setNonStrikerId(nextPlayer.id);
+    } else {
+      setStrikerId(nextPlayer.id);
+    }
+  } else if (lastManStanding && nonStrikerId) {
     setStrikerId(nonStrikerId);
-    setNonStrikerId(nextPlayer.id);
+    setNonStrikerId("");
   } else {
-    setStrikerId(nextPlayer.id);
+    setStrikerId("");
   }
-} else if (lastManStanding && nonStrikerId) {
-  setStrikerId(nonStrikerId);
-  setNonStrikerId("");
-} else {
-  setStrikerId("");
+
+  checkInningsEnd(score, newWickets, newBalls, updatedCurrentPlayers);
 }
 
-  checkInningsEnd(score, newWickets, newBalls, updated);
-}
+function undoLastBall() {
+  if (ballHistory.length === 0) {
+    alert("No ball to undo.");
+    return;
+  }
 
-  function undoLastBall() {
-    if (timeline.length === 0) {
-      alert("No ball to undo.");
-      return;
-    }
-
-    const last = timeline[timeline.length - 1];
-
-    setTimeline(timeline.slice(0, -1));
-    setBallHistory(ballHistory.slice(0, -1));
-
-    if (last === "WD" || last === "NB") {
-      setScore(score - 1);
-      setExtras(extras - 1);
-      return;
-    }
-
-if (last === "W") {
   const lastBall = ballHistory[ballHistory.length - 1];
-  const outPlayerId = lastBall?.batsmanId;
+  const snapshot = lastBall.snapshot;
 
-  setWickets(Math.max(0, wickets - 1));
-  setBalls(Math.max(0, balls - 1));
-
-  const updatedPlayers = currentPlayers.map((player) => {
-    if (player.id !== outPlayerId) return player;
-
-    return {
-      ...player,
-      out: false,
-      balls: Math.max(0, player.balls - 1),
-    };
-  });
-
-  updateCurrentPlayers(updatedPlayers);
-
-  if (outPlayerId) {
-    setStrikerId(outPlayerId);
+  if (!snapshot) {
+    alert("This older ball cannot be fully restored.");
+    return;
   }
 
-  return;
+  setScore(snapshot.score);
+  setWickets(snapshot.wickets);
+  setBalls(snapshot.balls);
+  setExtras(snapshot.extras);
+  setStrikerId(snapshot.strikerId);
+  setNonStrikerId(snapshot.nonStrikerId);
+  setCurrentBowlerId(snapshot.currentBowlerId);
+  setLastBowlerId(snapshot.lastBowlerId);
+  setPlayerPool(snapshot.playerPool);
+  setTimeline(snapshot.timeline);
+  setOversHistory(snapshot.oversHistory || []);
+  setBallHistory(ballHistory.slice(0, -1));
 }
-
-    setScore(score - last);
-    setBalls(balls - 1);
-
-    const updatedPlayers = currentPlayers.map((player) => {
-      if (player.id !== strikerId) return player;
-
-      return {
-        ...player,
-        runs: Math.max(0, player.runs - last),
-        balls: Math.max(0, player.balls - 1),
-        fours: last === 4 ? Math.max(0, player.fours - 1) : player.fours,
-        sixes: last === 6 ? Math.max(0, player.sixes - 1) : player.sixes,
-      };
-    });
-
-    updateCurrentPlayers(updatedPlayers);
-  }
 
 function goBackToFirstInnings() {
   if (!firstInnings) return;
@@ -833,6 +1017,8 @@ function goBackToFirstInnings() {
       extras,
       players: finalPlayers,
       ballHistory,
+      timeline,
+      oversHistory,
     });
 
     const secondTeam = battingTeam === "A" ? "B" : "A";
@@ -847,9 +1033,12 @@ function goBackToFirstInnings() {
     setExtras(0);
     setTimeline([]);
     setBallHistory([]);
+    setOversHistory([]);
 
     setStrikerId(secondPlayers[0]?.id || "");
     setNonStrikerId(secondPlayers[1]?.id || "");
+    setCurrentBowlerId(""); 
+    setLastBowlerId("");      
   }
 
   function finishMatch(finalScore, finalWickets) {
@@ -885,6 +1074,7 @@ function goBackToFirstInnings() {
     setNonStrikerId("");
     setTimeline([]);
     setBallHistory([]);
+    setOversHistory([]);
     localStorage.removeItem(LIVE_MATCH_KEY);
     setHasSavedLiveMatch(false);
   }
@@ -972,8 +1162,12 @@ function resetCurrentInnings() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white p-2 md:p-2">
-      <div className="max-w-4xl mx-auto">
-        <header className="mb-2 bg-gradient-to-r from-green-600 to-slate-900 p-3 rounded-3xl shadow-xl">
+      <div className="max-w-8xl mx-auto">
+          <header
+            className={`mb-2 bg-gradient-to-r from-green-600 to-slate-900 p-3 rounded-3xl shadow-xl ${
+              matchStarted && !matchFinished ? "hidden" : ""
+            }`}
+          >
           <h1 className="text-4xl md:text-5xl font-black">Celle Strikers</h1>
           <p className="text-green-100 mt-2">Sunday Cricket Scorebook</p>
           <p className="text-black-100 mt-2 font-bold">Created by Awais</p>
@@ -1125,8 +1319,31 @@ function resetCurrentInnings() {
             )}
 
             {matchStarted && !matchFinished && (
-              <div className="grid lg:grid-cols-3 gap-3">
-              <div className="lg:col-span-2 bg-slate-900 p-3 rounded-3xl">
+<div className="grid lg:grid-cols-3 gap-3">
+<div>
+  <ScoreCard
+    title="Batting Card"
+    players={currentPlayers}
+    strikerId={strikerId}
+    timeline={timeline}
+  />
+
+  <div className="mt-3">
+  <h3 className="font-bold">Overs History</h3>
+
+  {oversHistory.map((o, i) => (
+    <div key={i} className="text-sm text-slate-300">
+      Over {o.over}: {o.balls.join(" | ")}
+    </div>
+  ))}
+</div>
+
+  <BowlingCard
+    players={battingTeam === "A" ? teamBPlayers : teamAPlayers}
+  />
+</div>
+
+  <div className="lg:col-span-2 bg-slate-900 p-3 rounded-3xl">
               <div className="flex justify-between items-start gap-4 mb-4">
                 <div>
                   <p className="text-green-400">Innings {inningsNumber}</p>
@@ -1160,6 +1377,24 @@ function resetCurrentInnings() {
                     <p className="text-slate-300 mt-1">
                       Overs: {formatOvers(balls)} / {matchOvers}
                     </p>
+
+                    <div className="mt-2">
+                    <label className="text-slate-300 text-sm">Bowler</label>
+                    <select
+                      value={currentBowlerId}
+                      onChange={(e) => setCurrentBowlerId(e.target.value)}
+                      className="w-full p-2 rounded-xl bg-slate-700 mt-1"
+                    >
+                      <option value="">Select Bowler</option>
+                      {bowlingPlayers
+                        .filter(p => p.id !== lastBowlerId) 
+                        .map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                      ))}
+                    </select>
+                  </div>
 
                     <p className="text-slate-300">Extras: {extras}</p>
 
@@ -1306,12 +1541,6 @@ function resetCurrentInnings() {
                   )}
                 </div>
 
-                <ScoreCard
-                  title="Batting Card"
-                  players={currentPlayers}
-                  strikerId={strikerId}
-                  timeline={timeline}
-                />
               </div>
             )}
 
@@ -1324,23 +1553,23 @@ function resetCurrentInnings() {
                 </p>
 
                 <div className="grid md:grid-cols-2 gap-6">
-                  <SummaryBox
-                    title={firstInnings.teamName}
-                    score={firstInnings.score}
-                    wickets={firstInnings.wickets}
-                    balls={firstInnings.balls}
-                    extras={firstInnings.extras}
-                    players={firstInnings.players}
-                  />
+                <SummaryBox
+                  title={teamAName}
+                  score={firstInnings.team === "A" ? firstInnings.score : score}
+                  wickets={firstInnings.team === "A" ? firstInnings.wickets : wickets}
+                  balls={firstInnings.team === "A" ? firstInnings.balls : balls}
+                  extras={firstInnings.team === "A" ? firstInnings.extras : extras}
+                  players={teamAPlayers}
+                />
 
-                  <SummaryBox
-                    title={currentTeamName}
-                    score={score}
-                    wickets={wickets}
-                    balls={balls}
-                    extras={extras}
-                    players={currentPlayers}
-                  />
+                <SummaryBox
+                  title={teamBName}
+                  score={firstInnings.team === "B" ? firstInnings.score : score}
+                  wickets={firstInnings.team === "B" ? firstInnings.wickets : wickets}
+                  balls={firstInnings.team === "B" ? firstInnings.balls : balls}
+                  extras={firstInnings.team === "B" ? firstInnings.extras : extras}
+                  players={teamBPlayers}
+                />
                 </div>
 
                 {hasSavedLiveMatch && (
@@ -1380,6 +1609,13 @@ function resetCurrentInnings() {
         )}
 
         {activeTab === "stats" && <PlayerStats matchHistory={matchHistory} />}
+      
+      {matchStarted && !matchFinished && (
+  <div className="mt-4 text-center text-slate-500 text-sm font-bold">
+    Celle Strikers • Sunday Cricket Scorebook Created By Awais
+  </div>
+)}
+      
       </div>
     </div>
   );
@@ -1568,33 +1804,35 @@ function LivePlayerManager({
        <h4 className={`font-bold mb-2 ${team === "A" ? "text-white-500" : "text-white-500"}`}>{title}</h4>
         <div className="space-y-1">
           {players.map((player) => (
-            <div
-              key={player.id}
-              className="flex justify-between bg-slate-800 p-3 rounded-xl"
-            >
-              <span>{player.name}</span>
+<div
+  key={player.id}
+  className="flex justify-between items-center bg-slate-800 p-3 rounded-xl"
+>
+  <span>{player.name}</span>
 
-  <button
-    onClick={() => giveStrikeToPlayer(player, team)}
-    className="bg-green-900 text-white-400"
-  >
-    Give Strike*
-  </button>
+  <div className="flex items-center gap-3">
+    <button
+      onClick={() => giveStrikeToPlayer(player, team)}
+      className="bg-green-800 text-white px-3 py-1 rounded-lg font-bold"
+    >
+      Give Strike*
+    </button>
 
-              <button
-                onClick={() => {
-                  if (player.id === strikerId || player.id === nonStrikerId) {
-                    alert("Can't remove active batter.");
-                    return;
-                  }
+    <button
+      onClick={() => {
+        if (player.id === strikerId || player.id === nonStrikerId) {
+          alert("Can't remove active batter.");
+          return;
+        }
 
-                  removeFromTeam(team, player.id);
-                }}
-                className="text-red-400"
-              >
-                X
-              </button>
-            </div>
+        removeFromTeam(team, player.id);
+      }}
+      className="text-red-400 text-xl font-bold"
+    >
+      X
+    </button>
+  </div>
+</div>
           ))}
         </div>
       </div>
@@ -1660,11 +1898,14 @@ function ScoreCard({ title, players, strikerId, timeline }) {
                 {player.runs} ({player.balls})
               </strong>
             </div>
+           <p className="text-sm text-slate-400">
+            4s: {player.fours} | 6s: {player.sixes}
+            {player.out ? " | Out" : ""}
+          </p>
 
-            <p className="text-sm text-slate-400">
-              4s: {player.fours} | 6s: {player.sixes}
-              {player.out ? " | Out" : ""}
-            </p>
+          <p className="text-xs text-slate-500">
+            Bowl: {formatOvers(player.ballsBowled || 0)} | Runs: {player.runsConceded || 0} | Wkts: {player.wicketsTaken || 0}
+          </p>
           </div>
         ))}
       </div>
@@ -1676,6 +1917,36 @@ function ScoreCard({ title, players, strikerId, timeline }) {
           <span key={index} className="bg-slate-800 px-3 py-2 rounded-lg">
             {item}
           </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BowlingCard({ players }) {
+  return (
+    <div className="bg-slate-900 p-4 rounded-3xl mt-3">
+      <h3 className="text-2xl font-bold mb-3">Bowling</h3>
+
+      <div className="grid grid-cols-[1fr_auto] text-slate-400 text-sm font-bold px-3 mb-2">
+        <span>Bowler</span>
+        <span>O - R - W</span>
+      </div>
+
+      <div className="space-y-2">
+        {players.map((p) => (
+          <div
+            key={p.id}
+            className="grid grid-cols-[1fr_auto] bg-slate-800 p-3 rounded-xl"
+          >
+            <span>{p.name}</span>
+
+            <span className="text-sm font-bold">
+              {Math.floor((p.ballsBowled || 0) / 6)}.
+              {(p.ballsBowled || 0) % 6} - {p.runsConceded || 0} -{" "}
+              {p.wicketsTaken || 0}
+            </span>
+          </div>
         ))}
       </div>
     </div>
@@ -1702,9 +1973,13 @@ function SummaryBox({ title, score, wickets, balls, extras, players }) {
             className="flex justify-between bg-slate-900 p-3 rounded-xl"
           >
             <span>{player.name}</span>
-            <span>
-              {player.runs} ({player.balls})
-            </span>
+          <div className="text-right">
+            <p>{player.runs} ({player.balls})</p>
+            <p className="text-xs text-slate-400">
+              Bowl: {formatOvers(player.ballsBowled || 0)} | Runs:{" "}
+              {player.runsConceded || 0} | Wkts: {player.wicketsTaken || 0}
+            </p>
+          </div>
           </div>
         ))}
       </div>
