@@ -24,3 +24,9 @@ dist-ssr
 *.sw?
 .env.local
 .env
+
+# Firebase deploy cache and local AI agent skills
+.firebase/
+.agents/
+skills-lock.json
+.env

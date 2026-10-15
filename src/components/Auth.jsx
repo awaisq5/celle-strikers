@@ -1,8 +1,5 @@
 import { useState } from "react";
-import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-} from "firebase/auth";
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../firebase";
 
 export default function Auth() {
@@ -28,9 +25,7 @@ export default function Auth() {
     <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4">
       <div className="w-full max-w-md bg-slate-900 p-8 rounded-3xl">
         <h1 className="text-4xl font-black mb-2">Celle Strikers</h1>
-        <p className="text-slate-300 mb-8">
-          Login to access Sunday Cricket Scorebook
-        </p>
+        <p className="text-slate-300 mb-8">Login to access Sunday Cricket Scorebook</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <input
@@ -54,13 +49,8 @@ export default function Auth() {
           </button>
         </form>
 
-        <button
-          onClick={() => setIsLogin(!isLogin)}
-          className="mt-6 text-green-400 font-bold"
-        >
-          {isLogin
-            ? "Need an account? Sign up"
-            : "Already have an account? Login"}
+        <button onClick={() => setIsLogin(!isLogin)} className="mt-6 text-green-400 font-bold">
+          {isLogin ? "Need an account? Sign up" : "Already have an account? Login"}
         </button>
       </div>
     </div>

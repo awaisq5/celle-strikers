@@ -2,66 +2,22 @@ import { useEffect, useMemo, useState } from "react";
 import "./index.css";
 
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import {
-  addDoc,
-  collection,
-  deleteDoc,
-  doc,
-  getDocs,
-  orderBy,
-  query,
-} from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, getDocs, orderBy, query } from "firebase/firestore";
 
 import { auth, db } from "./firebase";
 import Auth from "./components/Auth";
 import PlayerStats from "./components/PlayerStats";
+import {
+  createPlayer,
+  formatOvers,
+  inningsEnd,
+  isEndOfOver,
+  isExtraBall,
+  resetPlayerStats,
+} from "./lib/cricket";
 
 const STORAGE_KEY = "celle-strikers-v3";
 const LIVE_MATCH_KEY = "celle-strikers-live-match";
-
-function createPlayer(name, type = "regular") {
-return {
-  id: crypto.randomUUID(),
-  name,
-  type,
-
-  runs: 0,
-  balls: 0,
-  fours: 0,
-  sixes: 0,
-  out: false,
-
-  ballsBowled: 0,
-  runsConceded: 0,
-  wicketsTaken: 0,
-//  runsGiven: 0,
-//  wicketsTaken: 0,
-//  oversBowled: 0,
-//  ballsBowled: 0,
-};
-}
-
-function resetPlayerStats(players) {
-  return players.map((player) => ({
-    ...player,
-    runs: 0,
-    balls: 0,
-    fours: 0,
-    sixes: 0,
-    out: false,
-    ballsBowled: 0,
-    runsConceded: 0,
-    wicketsTaken: 0,
-  }));
-}
-
-function formatOvers(balls) {
-  return `${Math.floor(balls / 6)}.${balls % 6}`;
-}
-
-function isExtraBall(item) {
-  return item === "WD" || item === "NB";
-}
 
 export default function App() {
   const [teamAName, setTeamAName] = useState("Team A");
@@ -76,7 +32,6 @@ export default function App() {
 
   const [latePlayerInput, setLatePlayerInput] = useState("");
   const [latePlayerTeam, setLatePlayerTeam] = useState("A");
-  const [selectedPoolPlayerId, setSelectedPoolPlayerId] = useState("");
 
   const [matchOvers, setMatchOvers] = useState(6);
   const [tossWinner, setTossWinner] = useState("A");
@@ -117,12 +72,12 @@ export default function App() {
 
   const teamAPlayers = useMemo(
     () => teamAIds.map((id) => playerPool.find((p) => p.id === id)).filter(Boolean),
-    [teamAIds, playerPool]
+    [teamAIds, playerPool],
   );
 
   const teamBPlayers = useMemo(
     () => teamBIds.map((id) => playerPool.find((p) => p.id === id)).filter(Boolean),
-    [teamBIds, playerPool]
+    [teamBIds, playerPool],
   );
 
   const currentPlayers = battingTeam === "A" ? teamAPlayers : teamBPlayers;
@@ -131,16 +86,6 @@ export default function App() {
   const bowlingTeamName = battingTeam === "A" ? teamBName : teamAName;
   const maxBalls = Number(matchOvers) * 6;
   const target = firstInnings ? firstInnings.score + 1 : null;
-
-  const selectedStriker = useMemo(
-    () => currentPlayers.find((player) => player.id === strikerId),
-    [currentPlayers, strikerId]
-  );
-
-  const selectedNonStriker = useMemo(
-    () => currentPlayers.find((player) => player.id === nonStrikerId),
-    [currentPlayers, nonStrikerId]
-  );
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -168,7 +113,7 @@ export default function App() {
         teamAIds,
         teamBIds,
         matchOvers,
-      })
+      }),
     );
   }, [teamAName, teamBName, playerPool, teamAIds, teamBIds, matchOvers]);
 
@@ -332,14 +277,14 @@ export default function App() {
           extras,
           players: currentPlayers,
           ballHistory,
-        })
+        }),
       );
 
       const winner = result.includes(teamAName)
         ? teamAName
         : result.includes(teamBName)
-        ? teamBName
-        : "Tie";
+          ? teamBName
+          : "Tie";
 
       const matchData = {
         date: today,
@@ -356,7 +301,7 @@ export default function App() {
         createdAt: new Date().toISOString(),
         createdAtMs: Date.now(),
         savedBy: user?.email || "unknown",
-        };
+      };
 
       await addDoc(collection(db, "matches"), matchData);
 
@@ -387,9 +332,7 @@ export default function App() {
     const name = playerInput.trim();
     if (!name) return;
 
-    const exists = playerPool.some(
-      (player) => player.name.toLowerCase() === name.toLowerCase()
-    );
+    const exists = playerPool.some((player) => player.name.toLowerCase() === name.toLowerCase());
 
     if (exists) {
       alert("Player already exists in pool.");
@@ -402,8 +345,7 @@ export default function App() {
 
   function removePlayerFromPool(playerId) {
     const usedInMatch =
-      matchStarted &&
-      (teamAIds.includes(playerId) || teamBIds.includes(playerId));
+      matchStarted && (teamAIds.includes(playerId) || teamBIds.includes(playerId));
 
     if (usedInMatch) {
       alert("Cannot delete a player from pool during a match. Remove from team only.");
@@ -418,30 +360,28 @@ export default function App() {
     setTeamBIds(teamBIds.filter((id) => id !== playerId));
   }
 
-function giveStrikeToPlayer(player, team) {
-  if (team !== battingTeam) {
-    alert("You can only give strike to the batting team.");
-    return;
-  }
+  function giveStrikeToPlayer(player, team) {
+    if (team !== battingTeam) {
+      alert("You can only give strike to the batting team.");
+      return;
+    }
 
-  setPlayerPool((prevPool) =>
-    prevPool.map((p) =>
-      p.id === player.id ? { ...p, out: false } : p
-    )
-  );
+    setPlayerPool((prevPool) =>
+      prevPool.map((p) => (p.id === player.id ? { ...p, out: false } : p)),
+    );
 
-  if (player.id === nonStrikerId) {
-    const oldStriker = strikerId;
-    setStrikerId(player.id);
-    setNonStrikerId(oldStriker);
-    return;
-  }
+    if (player.id === nonStrikerId) {
+      const oldStriker = strikerId;
+      setStrikerId(player.id);
+      setNonStrikerId(oldStriker);
+      return;
+    }
 
-  if (player.id !== strikerId) {
-    setNonStrikerId(strikerId);
-    setStrikerId(player.id);
+    if (player.id !== strikerId) {
+      setNonStrikerId(strikerId);
+      setStrikerId(player.id);
+    }
   }
-}
 
   function addToTeam(team, playerId) {
     if (team === "A") {
@@ -489,16 +429,6 @@ function giveStrikeToPlayer(player, team) {
     setLatePlayerInput("");
   }
 
-  function addExistingPoolPlayerDuringMatch(team) {
-    if (!selectedPoolPlayerId) {
-      alert("Please select a player from pool.");
-      return;
-    }
-
-    addToTeam(team, selectedPoolPlayerId);
-    setSelectedPoolPlayerId("");
-  }
-
   function startMatch() {
     if (teamAPlayers.length < 2 || teamBPlayers.length < 2) {
       alert("Please add at least 2 players in each team.");
@@ -507,8 +437,7 @@ function giveStrikeToPlayer(player, team) {
 
     const tossLoser = tossWinner === "A" ? "B" : "A";
     const firstBattingTeam = tossDecision === "bat" ? tossWinner : tossLoser;
-    const firstBattingPlayers =
-      firstBattingTeam === "A" ? teamAPlayers : teamBPlayers;
+    const firstBattingPlayers = firstBattingTeam === "A" ? teamAPlayers : teamBPlayers;
 
     setPlayerPool(resetPlayerStats(playerPool));
 
@@ -531,55 +460,25 @@ function giveStrikeToPlayer(player, team) {
     setNonStrikerId(firstBattingPlayers[1].id);
   }
 
-  function updateCurrentPlayers(updatedPlayers) {
-    setPlayerPool((prevPool) =>
-      prevPool.map((player) => {
-        const updated = updatedPlayers.find((p) => p.id === player.id);
-        return updated || player;
-      })
-    );
-  }
-
-  function updateStriker(run, isLegalBall) {
-    const updated = currentPlayers.map((player) => {
-      if (player.id !== strikerId) return player;
-
-      return {
-        ...player,
-        runs: player.runs + run,
-        balls: player.balls + (isLegalBall ? 1 : 0),
-        fours: player.fours + (run === 4 ? 1 : 0),
-        sixes: player.sixes + (run === 6 ? 1 : 0),
-      };
-    });
-
-    updateCurrentPlayers(updated);
-  }
-
   function changeStrike() {
     const oldStriker = strikerId;
     setStrikerId(nonStrikerId);
     setNonStrikerId(oldStriker);
   }
 
-  function isEndOfOver(newBalls) {
-    return newBalls > 0 && newBalls % 6 === 0;
-  }
+  function checkInningsEnd(newScore, newWickets, newBalls, updatedPlayers = currentPlayers) {
+    const { allOut, oversFinished, targetReached } = inningsEnd({
+      wickets: newWickets,
+      balls: newBalls,
+      score: newScore,
+      playerCount: currentPlayers.length,
+      lastManStanding,
+      maxBalls,
+      inningsNumber,
+      target,
+    });
 
-  function checkInningsEnd(
-    newScore,
-    newWickets,
-    newBalls,
-    updatedPlayers = currentPlayers
-  ) {
-    const allOut = lastManStanding
-      ? newWickets >= currentPlayers.length
-      : newWickets >= currentPlayers.length - 1;
-
-    const oversFinished = newBalls >= maxBalls;
-    const targetReached = inningsNumber === 2 && newScore >= target;
-
-if (inningsNumber === 1 && !editingFirstInnings && (allOut || oversFinished)) {
+    if (inningsNumber === 1 && !editingFirstInnings && (allOut || oversFinished)) {
       setTimeout(() => {
         endFirstInnings(newScore, newWickets, newBalls, updatedPlayers);
       }, 200);
@@ -592,63 +491,60 @@ if (inningsNumber === 1 && !editingFirstInnings && (allOut || oversFinished)) {
     }
   }
 
-function hasValidStriker() {
-  if (!strikerId) {
-    alert("Please select a striker before scoring.");
-    return false;
+  function hasValidStriker() {
+    if (!strikerId) {
+      alert("Please select a striker before scoring.");
+      return false;
+    }
+
+    const striker = currentPlayers.find((player) => player.id === strikerId);
+
+    if (!striker || striker.out) {
+      alert("Selected striker is not available. Please choose a valid striker.");
+      return false;
+    }
+
+    return true;
   }
 
-  const striker = currentPlayers.find((player) => player.id === strikerId);
-
-  if (!striker || striker.out) {
-    alert("Selected striker is not available. Please choose a valid striker.");
-    return false;
+  function createBallSnapshot() {
+    return {
+      score,
+      wickets,
+      balls,
+      extras,
+      strikerId,
+      nonStrikerId,
+      currentBowlerId,
+      lastBowlerId,
+      playerPool,
+      timeline,
+      oversHistory,
+    };
   }
 
-  return true;
-}
+  function getThisOverTimelineFromTimeline(sourceTimeline, sourceBalls) {
+    const thisOver = [];
+    const legalBallsInCurrentOver = sourceBalls % 6;
+    let legalBallsFound = 0;
 
-function updateBowlerStats(bowlerId, ballsToAdd, runsToAdd, wicketsToAdd) {
-  if (!bowlerId) return;
+    if (sourceTimeline.length === 0) return [];
 
-  setPlayerPool((prevPool) =>
-    prevPool.map((p) =>
-      p.id === bowlerId
-        ? {
-            ...p,
-            ballsBowled: Math.max(0, (p.ballsBowled || 0) + ballsToAdd),
-            runsConceded: Math.max(0, (p.runsConceded || 0) + runsToAdd),
-            wicketsTaken: Math.max(0, (p.wicketsTaken || 0) + wicketsToAdd),
-          }
-        : p
-    )
-  );
-}
+    if (legalBallsInCurrentOver === 0) {
+      for (let i = sourceTimeline.length - 1; i >= 0; i--) {
+        const item = sourceTimeline[i];
+        thisOver.unshift(item);
 
-function createBallSnapshot() {
-  return {
-    score,
-    wickets,
-    balls,
-    extras,
-    strikerId,
-    nonStrikerId,
-    currentBowlerId,
-    lastBowlerId,
-    playerPool,
-    timeline,
-    oversHistory,
-  };
-}
+        if (!isExtraBall(item)) {
+          legalBallsFound++;
+        }
 
-function getThisOverTimelineFromTimeline(sourceTimeline, sourceBalls) {
-  const thisOver = [];
-  const legalBallsInCurrentOver = sourceBalls % 6;
-  let legalBallsFound = 0;
+        if (legalBallsFound === 6) break;
+      }
 
-  if (sourceTimeline.length === 0) return [];
+      return thisOver;
+    }
 
-  if (legalBallsInCurrentOver === 0) {
     for (let i = sourceTimeline.length - 1; i >= 0; i--) {
       const item = sourceTimeline[i];
       thisOver.unshift(item);
@@ -657,353 +553,340 @@ function getThisOverTimelineFromTimeline(sourceTimeline, sourceBalls) {
         legalBallsFound++;
       }
 
-      if (legalBallsFound === 6) break;
+      if (legalBallsFound === legalBallsInCurrentOver) break;
     }
 
     return thisOver;
   }
 
-  for (let i = sourceTimeline.length - 1; i >= 0; i--) {
-    const item = sourceTimeline[i];
-    thisOver.unshift(item);
+  function addRuns(run) {
+    if (!hasValidStriker()) return;
 
-    if (!isExtraBall(item)) {
-      legalBallsFound++;
+    if (!currentBowlerId) {
+      alert("Select a bowler first");
+      return;
     }
 
-    if (legalBallsFound === legalBallsInCurrentOver) break;
-  }
+    const snapshot = createBallSnapshot();
 
-  return thisOver;
-}
+    const newScore = score + run;
+    const newBalls = balls + 1;
+    const overFinished = isEndOfOver(newBalls);
+    const oddRun = run === 1 || run === 3;
 
-function addRuns(run) {
-  if (!hasValidStriker()) return;
+    const updatedPool = playerPool.map((player) => {
+      if (player.id === strikerId) {
+        return {
+          ...player,
+          runs: player.runs + run,
+          balls: player.balls + 1,
+          fours: player.fours + (run === 4 ? 1 : 0),
+          sixes: player.sixes + (run === 6 ? 1 : 0),
+        };
+      }
 
-  if (!currentBowlerId) {
-    alert("Select a bowler first");
-    return;
-  }
+      if (player.id === currentBowlerId) {
+        return {
+          ...player,
+          ballsBowled: (player.ballsBowled || 0) + 1,
+          runsConceded: (player.runsConceded || 0) + run,
+        };
+      }
 
-  const snapshot = createBallSnapshot();
+      return player;
+    });
 
-  const newScore = score + run;
-  const newBalls = balls + 1;
-  const overFinished = isEndOfOver(newBalls);
-  const oddRun = run === 1 || run === 3;
+    const newTimeline = [...timeline, run];
 
-  const updatedPool = playerPool.map((player) => {
-    if (player.id === strikerId) {
-      return {
-        ...player,
-        runs: player.runs + run,
-        balls: player.balls + 1,
-        fours: player.fours + (run === 4 ? 1 : 0),
-        sixes: player.sixes + (run === 6 ? 1 : 0),
-      };
-    }
+    setScore(newScore);
+    setBalls(newBalls);
+    setTimeline(newTimeline);
+    setPlayerPool(updatedPool);
 
-    if (player.id === currentBowlerId) {
-      return {
-        ...player,
-        ballsBowled: (player.ballsBowled || 0) + 1,
-        runsConceded: (player.runsConceded || 0) + run,
-      };
-    }
-
-    return player;
-  });
-
-  const newTimeline = [...timeline, run];
-
-  setScore(newScore);
-  setBalls(newBalls);
-  setTimeline(newTimeline);
-  setPlayerPool(updatedPool);
-
-  setBallHistory([
-    ...ballHistory,
-    {
-      type: "RUN",
-      value: run,
-      batsmanId: strikerId,
-      bowlerId: currentBowlerId,
-      legalBall: true,
-      snapshot,
-    },
-  ]);
-
-  const updatedCurrentPlayers = battingTeam === "A"
-    ? teamAIds.map((id) => updatedPool.find((p) => p.id === id)).filter(Boolean)
-    : teamBIds.map((id) => updatedPool.find((p) => p.id === id)).filter(Boolean);
-
-  const playersLeft = updatedCurrentPlayers.filter((p) => !p.out).length;
-
-  if (overFinished) {
-    setOversHistory([
-      ...oversHistory,
+    setBallHistory([
+      ...ballHistory,
       {
-        over: Math.floor(newBalls / 6),
+        type: "RUN",
+        value: run,
+        batsmanId: strikerId,
         bowlerId: currentBowlerId,
-        balls: getThisOverTimelineFromTimeline(newTimeline, newBalls),
+        legalBall: true,
+        snapshot,
       },
     ]);
 
-    setLastBowlerId(currentBowlerId);
-    setCurrentBowlerId("");
-  }
+    const updatedCurrentPlayers =
+      battingTeam === "A"
+        ? teamAIds.map((id) => updatedPool.find((p) => p.id === id)).filter(Boolean)
+        : teamBIds.map((id) => updatedPool.find((p) => p.id === id)).filter(Boolean);
 
-  if (playersLeft > 1 && oddRun !== overFinished) {
-    changeStrike();
-  }
+    const playersLeft = updatedCurrentPlayers.filter((p) => !p.out).length;
 
-  checkInningsEnd(newScore, wickets, newBalls, updatedCurrentPlayers);
-}
+    if (overFinished) {
+      setOversHistory([
+        ...oversHistory,
+        {
+          over: Math.floor(newBalls / 6),
+          bowlerId: currentBowlerId,
+          balls: getThisOverTimelineFromTimeline(newTimeline, newBalls),
+        },
+      ]);
 
-function addWide() {
-  if (!currentBowlerId) {
-    alert("Select a bowler first");
-    return;
-  }
-
-  const snapshot = createBallSnapshot();
-  const newScore = score + 1;
-
-  const updatedPool = playerPool.map((player) => {
-    if (player.id === currentBowlerId) {
-      return {
-        ...player,
-        runsConceded: (player.runsConceded || 0) + 1,
-      };
+      setLastBowlerId(currentBowlerId);
+      setCurrentBowlerId("");
     }
 
-    return player;
-  });
+    if (playersLeft > 1 && oddRun !== overFinished) {
+      changeStrike();
+    }
 
-  setScore(newScore);
-  setExtras(extras + 1);
-  setTimeline([...timeline, "WD"]);
-  setPlayerPool(updatedPool);
-
-  setBallHistory([
-    ...ballHistory,
-    {
-      type: "WIDE",
-      value: 1,
-      bowlerId: currentBowlerId,
-      legalBall: false,
-      snapshot,
-    },
-  ]);
-
-  checkInningsEnd(newScore, wickets, balls);
-}
-
-function addNoBall() {
-  if (!currentBowlerId) {
-    alert("Select a bowler first");
-    return;
+    checkInningsEnd(newScore, wickets, newBalls, updatedCurrentPlayers);
   }
 
-  const snapshot = createBallSnapshot();
-  const newScore = score + 1;
-
-  const updatedPool = playerPool.map((player) => {
-    if (player.id === currentBowlerId) {
-      return {
-        ...player,
-        runsConceded: (player.runsConceded || 0) + 1,
-      };
+  function addWide() {
+    if (!currentBowlerId) {
+      alert("Select a bowler first");
+      return;
     }
 
-    return player;
-  });
+    const snapshot = createBallSnapshot();
+    const newScore = score + 1;
 
-  setScore(newScore);
-  setExtras(extras + 1);
-  setTimeline([...timeline, "NB"]);
-  setPlayerPool(updatedPool);
+    const updatedPool = playerPool.map((player) => {
+      if (player.id === currentBowlerId) {
+        return {
+          ...player,
+          runsConceded: (player.runsConceded || 0) + 1,
+        };
+      }
 
-  setBallHistory([
-    ...ballHistory,
-    {
-      type: "NO_BALL",
-      value: 1,
-      bowlerId: currentBowlerId,
-      legalBall: false,
-      snapshot,
-    },
-  ]);
+      return player;
+    });
 
-  checkInningsEnd(newScore, wickets, balls);
-}
+    setScore(newScore);
+    setExtras(extras + 1);
+    setTimeline([...timeline, "WD"]);
+    setPlayerPool(updatedPool);
 
-function addWicket() {
-  if (!hasValidStriker()) return;
-
-  if (!currentBowlerId) {
-    alert("Select a bowler first");
-    return;
-  }
-
-  const snapshot = createBallSnapshot();
-
-  const newWickets = wickets + 1;
-  const newBalls = balls + 1;
-  const overFinished = isEndOfOver(newBalls);
-
-  const updatedPool = playerPool.map((player) => {
-    if (player.id === strikerId) {
-      return {
-        ...player,
-        balls: player.balls + 1,
-        out: true,
-      };
-    }
-
-    if (player.id === currentBowlerId) {
-      return {
-        ...player,
-        ballsBowled: (player.ballsBowled || 0) + 1,
-        wicketsTaken: (player.wicketsTaken || 0) + 1,
-      };
-    }
-
-    return player;
-  });
-
-  const updatedCurrentPlayers = battingTeam === "A"
-    ? teamAIds.map((id) => updatedPool.find((p) => p.id === id)).filter(Boolean)
-    : teamBIds.map((id) => updatedPool.find((p) => p.id === id)).filter(Boolean);
-
-  const nextPlayer = updatedCurrentPlayers.find(
-    (player) =>
-      !player.out && player.id !== strikerId && player.id !== nonStrikerId
-  );
-
-  const newTimeline = [...timeline, "W"];
-
-  setWickets(newWickets);
-  setBalls(newBalls);
-  setTimeline(newTimeline);
-  setPlayerPool(updatedPool);
-
-  setBallHistory([
-    ...ballHistory,
-    {
-      type: "WICKET",
-      value: "W",
-      batsmanId: strikerId,
-      bowlerId: currentBowlerId,
-      legalBall: true,
-      snapshot,
-    },
-  ]);
-
-  if (overFinished) {
-    setOversHistory([
-      ...oversHistory,
+    setBallHistory([
+      ...ballHistory,
       {
-        over: Math.floor(newBalls / 6),
+        type: "WIDE",
+        value: 1,
         bowlerId: currentBowlerId,
-        balls: getThisOverTimelineFromTimeline(newTimeline, newBalls),
+        legalBall: false,
+        snapshot,
       },
     ]);
 
-    setLastBowlerId(currentBowlerId);
-    setCurrentBowlerId("");
+    checkInningsEnd(newScore, wickets, balls);
   }
 
-  if (nextPlayer) {
-    if (overFinished && nonStrikerId) {
+  function addNoBall() {
+    if (!currentBowlerId) {
+      alert("Select a bowler first");
+      return;
+    }
+
+    const snapshot = createBallSnapshot();
+    const newScore = score + 1;
+
+    const updatedPool = playerPool.map((player) => {
+      if (player.id === currentBowlerId) {
+        return {
+          ...player,
+          runsConceded: (player.runsConceded || 0) + 1,
+        };
+      }
+
+      return player;
+    });
+
+    setScore(newScore);
+    setExtras(extras + 1);
+    setTimeline([...timeline, "NB"]);
+    setPlayerPool(updatedPool);
+
+    setBallHistory([
+      ...ballHistory,
+      {
+        type: "NO_BALL",
+        value: 1,
+        bowlerId: currentBowlerId,
+        legalBall: false,
+        snapshot,
+      },
+    ]);
+
+    checkInningsEnd(newScore, wickets, balls);
+  }
+
+  function addWicket() {
+    if (!hasValidStriker()) return;
+
+    if (!currentBowlerId) {
+      alert("Select a bowler first");
+      return;
+    }
+
+    const snapshot = createBallSnapshot();
+
+    const newWickets = wickets + 1;
+    const newBalls = balls + 1;
+    const overFinished = isEndOfOver(newBalls);
+
+    const updatedPool = playerPool.map((player) => {
+      if (player.id === strikerId) {
+        return {
+          ...player,
+          balls: player.balls + 1,
+          out: true,
+        };
+      }
+
+      if (player.id === currentBowlerId) {
+        return {
+          ...player,
+          ballsBowled: (player.ballsBowled || 0) + 1,
+          wicketsTaken: (player.wicketsTaken || 0) + 1,
+        };
+      }
+
+      return player;
+    });
+
+    const updatedCurrentPlayers =
+      battingTeam === "A"
+        ? teamAIds.map((id) => updatedPool.find((p) => p.id === id)).filter(Boolean)
+        : teamBIds.map((id) => updatedPool.find((p) => p.id === id)).filter(Boolean);
+
+    const nextPlayer = updatedCurrentPlayers.find(
+      (player) => !player.out && player.id !== strikerId && player.id !== nonStrikerId,
+    );
+
+    const newTimeline = [...timeline, "W"];
+
+    setWickets(newWickets);
+    setBalls(newBalls);
+    setTimeline(newTimeline);
+    setPlayerPool(updatedPool);
+
+    setBallHistory([
+      ...ballHistory,
+      {
+        type: "WICKET",
+        value: "W",
+        batsmanId: strikerId,
+        bowlerId: currentBowlerId,
+        legalBall: true,
+        snapshot,
+      },
+    ]);
+
+    if (overFinished) {
+      setOversHistory([
+        ...oversHistory,
+        {
+          over: Math.floor(newBalls / 6),
+          bowlerId: currentBowlerId,
+          balls: getThisOverTimelineFromTimeline(newTimeline, newBalls),
+        },
+      ]);
+
+      setLastBowlerId(currentBowlerId);
+      setCurrentBowlerId("");
+    }
+
+    if (nextPlayer) {
+      if (overFinished && nonStrikerId) {
+        setStrikerId(nonStrikerId);
+        setNonStrikerId(nextPlayer.id);
+      } else {
+        setStrikerId(nextPlayer.id);
+      }
+    } else if (lastManStanding && nonStrikerId) {
       setStrikerId(nonStrikerId);
-      setNonStrikerId(nextPlayer.id);
+      setNonStrikerId("");
     } else {
-      setStrikerId(nextPlayer.id);
+      setStrikerId("");
     }
-  } else if (lastManStanding && nonStrikerId) {
-    setStrikerId(nonStrikerId);
-    setNonStrikerId("");
-  } else {
-    setStrikerId("");
+
+    checkInningsEnd(score, newWickets, newBalls, updatedCurrentPlayers);
   }
 
-  checkInningsEnd(score, newWickets, newBalls, updatedCurrentPlayers);
-}
+  function undoLastBall() {
+    if (ballHistory.length === 0) {
+      alert("No ball to undo.");
+      return;
+    }
 
-function undoLastBall() {
-  if (ballHistory.length === 0) {
-    alert("No ball to undo.");
-    return;
+    const lastBall = ballHistory[ballHistory.length - 1];
+    const snapshot = lastBall.snapshot;
+
+    if (!snapshot) {
+      alert("This older ball cannot be fully restored.");
+      return;
+    }
+
+    setScore(snapshot.score);
+    setWickets(snapshot.wickets);
+    setBalls(snapshot.balls);
+    setExtras(snapshot.extras);
+    setStrikerId(snapshot.strikerId);
+    setNonStrikerId(snapshot.nonStrikerId);
+    setCurrentBowlerId(snapshot.currentBowlerId);
+    setLastBowlerId(snapshot.lastBowlerId);
+    setPlayerPool(snapshot.playerPool);
+    setTimeline(snapshot.timeline);
+    setOversHistory(snapshot.oversHistory || []);
+    setBallHistory(ballHistory.slice(0, -1));
   }
 
-  const lastBall = ballHistory[ballHistory.length - 1];
-  const snapshot = lastBall.snapshot;
+  function goBackToFirstInnings() {
+    if (!firstInnings) return;
 
-  if (!snapshot) {
-    alert("This older ball cannot be fully restored.");
-    return;
+    const confirmed = confirm(
+      "Go back to 1st innings? Current 2nd innings progress will be cleared.",
+    );
+
+    if (!confirmed) return;
+
+    setEditingFirstInnings(true);
+
+    setMatchStarted(true);
+    setMatchFinished(false);
+    setInningsNumber(1);
+    setBattingTeam(firstInnings.team);
+
+    setScore(firstInnings.score);
+    setWickets(firstInnings.wickets);
+    setBalls(firstInnings.balls);
+    setExtras(firstInnings.extras);
+
+    setTimeline(firstInnings.timeline || []);
+    setBallHistory(firstInnings.ballHistory || []);
+
+    setPlayerPool((prevPool) =>
+      prevPool.map((player) => {
+        const savedPlayer = firstInnings.players.find((p) => p.id === player.id);
+        return savedPlayer || player;
+      }),
+    );
+
+    const availablePlayers = firstInnings.players.filter((p) => !p.out);
+
+    setStrikerId(availablePlayers[0]?.id || "");
+    setNonStrikerId(availablePlayers[1]?.id || "");
+
+    setFirstInnings(null);
+    setResult("");
   }
-
-  setScore(snapshot.score);
-  setWickets(snapshot.wickets);
-  setBalls(snapshot.balls);
-  setExtras(snapshot.extras);
-  setStrikerId(snapshot.strikerId);
-  setNonStrikerId(snapshot.nonStrikerId);
-  setCurrentBowlerId(snapshot.currentBowlerId);
-  setLastBowlerId(snapshot.lastBowlerId);
-  setPlayerPool(snapshot.playerPool);
-  setTimeline(snapshot.timeline);
-  setOversHistory(snapshot.oversHistory || []);
-  setBallHistory(ballHistory.slice(0, -1));
-}
-
-function goBackToFirstInnings() {
-  if (!firstInnings) return;
-
-  const confirmed = confirm(
-    "Go back to 1st innings? Current 2nd innings progress will be cleared."
-  );
-
-  if (!confirmed) return;
-
-  setEditingFirstInnings(true);
-
-  setMatchStarted(true);
-  setMatchFinished(false);
-  setInningsNumber(1);
-  setBattingTeam(firstInnings.team);
-
-  setScore(firstInnings.score);
-  setWickets(firstInnings.wickets);
-  setBalls(firstInnings.balls);
-  setExtras(firstInnings.extras);
-
-  setTimeline(firstInnings.timeline || []);
-  setBallHistory(firstInnings.ballHistory || []);
-
-  setPlayerPool((prevPool) =>
-    prevPool.map((player) => {
-      const savedPlayer = firstInnings.players.find((p) => p.id === player.id);
-      return savedPlayer || player;
-    })
-  );
-
-  const availablePlayers = firstInnings.players.filter((p) => !p.out);
-
-  setStrikerId(availablePlayers[0]?.id || "");
-  setNonStrikerId(availablePlayers[1]?.id || "");
-
-  setFirstInnings(null);
-  setResult("");
-}
 
   function endFirstInnings(
     finalScore = score,
     finalWickets = wickets,
     finalBalls = balls,
-    finalPlayers = currentPlayers
+    finalPlayers = currentPlayers,
   ) {
     setEditingFirstInnings(false);
     setFirstInnings({
@@ -1035,8 +918,8 @@ function goBackToFirstInnings() {
 
     setStrikerId(secondPlayers[0]?.id || "");
     setNonStrikerId(secondPlayers[1]?.id || "");
-    setCurrentBowlerId(""); 
-    setLastBowlerId("");      
+    setCurrentBowlerId("");
+    setLastBowlerId("");
   }
 
   function finishMatch(finalScore, finalWickets) {
@@ -1077,39 +960,39 @@ function goBackToFirstInnings() {
     setHasSavedLiveMatch(false);
   }
 
-function resetCurrentInnings() {
-  const confirmed = confirm("Reset current innings only?");
-  if (!confirmed) return;
+  function resetCurrentInnings() {
+    const confirmed = confirm("Reset current innings only?");
+    if (!confirmed) return;
 
-  const currentIds = battingTeam === "A" ? teamAIds : teamBIds;
+    const currentIds = battingTeam === "A" ? teamAIds : teamBIds;
 
-  setPlayerPool((prevPool) =>
-    prevPool.map((player) =>
-      currentIds.includes(player.id)
-        ? {
-            ...player,
-            runs: 0,
-            balls: 0,
-            fours: 0,
-            sixes: 0,
-            out: false,
-          }
-        : player
-    )
-  );
+    setPlayerPool((prevPool) =>
+      prevPool.map((player) =>
+        currentIds.includes(player.id)
+          ? {
+              ...player,
+              runs: 0,
+              balls: 0,
+              fours: 0,
+              sixes: 0,
+              out: false,
+            }
+          : player,
+      ),
+    );
 
-  setScore(0);
-  setWickets(0);
-  setBalls(0);
-  setExtras(0);
-  setTimeline([]);
-  setBallHistory([]);
+    setScore(0);
+    setWickets(0);
+    setBalls(0);
+    setExtras(0);
+    setTimeline([]);
+    setBallHistory([]);
 
-  const resetPlayers = battingTeam === "A" ? teamAPlayers : teamBPlayers;
+    const resetPlayers = battingTeam === "A" ? teamAPlayers : teamBPlayers;
 
-  setStrikerId(resetPlayers[0]?.id || "");
-  setNonStrikerId(resetPlayers[1]?.id || "");
-}
+    setStrikerId(resetPlayers[0]?.id || "");
+    setNonStrikerId(resetPlayers[1]?.id || "");
+  }
 
   function getThisOverTimeline() {
     const thisOver = [];
@@ -1161,11 +1044,11 @@ function resetCurrentInnings() {
   return (
     <div className="min-h-screen bg-slate-950 text-white p-2 md:p-2">
       <div className="max-w-8xl mx-auto">
-          <header
-            className={`mb-2 bg-gradient-to-r from-green-600 to-slate-900 p-3 rounded-3xl shadow-xl ${
-              matchStarted && !matchFinished ? "hidden" : ""
-            }`}
-          >
+        <header
+          className={`mb-2 bg-gradient-to-r from-green-600 to-slate-900 p-3 rounded-3xl shadow-xl ${
+            matchStarted && !matchFinished ? "hidden" : ""
+          }`}
+        >
           <h1 className="text-4xl md:text-5xl font-black">Celle Strikers</h1>
           <p className="text-green-100 mt-2">Sunday Cricket Scorebook</p>
           <p className="text-black-100 mt-2 font-bold">Created by Awais</p>
@@ -1262,9 +1145,7 @@ function resetCurrentInnings() {
                     </div>
 
                     <div>
-                      <label className="block mb-2 text-slate-300">
-                        Toss Winner
-                      </label>
+                      <label className="block mb-2 text-slate-300">Toss Winner</label>
                       <select
                         value={tossWinner}
                         onChange={(e) => setTossWinner(e.target.value)}
@@ -1317,51 +1198,46 @@ function resetCurrentInnings() {
             )}
 
             {matchStarted && !matchFinished && (
-<div className="grid lg:grid-cols-3 gap-3">
-<div>
-  <ScoreCard
-    title="Batting Card"
-    players={currentPlayers}
-    strikerId={strikerId}
-    timeline={timeline}
-  />
-
-  <div className="mt-3">
-  <h3 className="font-bold">Overs History</h3>
-
-  {oversHistory.map((o, i) => (
-    <div key={i} className="text-sm text-slate-300">
-      Over {o.over}: {o.balls.join(" | ")}
-    </div>
-  ))}
-</div>
-
-  <BowlingCard
-    players={battingTeam === "A" ? teamBPlayers : teamAPlayers}
-  />
-</div>
-
-  <div className="lg:col-span-2 bg-slate-900 p-3 rounded-3xl">
-              <div className="flex justify-between items-start gap-4 mb-4">
+              <div className="grid lg:grid-cols-3 gap-3">
                 <div>
-                  <p className="text-green-400">Innings {inningsNumber}</p>
-                  <h2 className="text-3xl font-black mb-1">{currentTeamName}</h2>
-                  <p className="text-slate-400">
-                    Bowling: {bowlingTeamName}
-                  </p>
+                  <ScoreCard
+                    title="Batting Card"
+                    players={currentPlayers}
+                    strikerId={strikerId}
+                    timeline={timeline}
+                  />
+
+                  <div className="mt-3">
+                    <h3 className="font-bold">Overs History</h3>
+
+                    {oversHistory.map((o, i) => (
+                      <div key={i} className="text-sm text-slate-300">
+                        Over {o.over}: {o.balls.join(" | ")}
+                      </div>
+                    ))}
+                  </div>
+
+                  <BowlingCard players={battingTeam === "A" ? teamBPlayers : teamAPlayers} />
                 </div>
 
-                {inningsNumber === 2 && (
-                  <button
-                    onClick={goBackToFirstInnings}
-                    className="bg-yellow-500 text-black px-4 py-3 rounded-xl font-bold"
-                  >
-                    Go back to 1st Innings
-                  </button>
-                )}
-              </div>
+                <div className="lg:col-span-2 bg-slate-900 p-3 rounded-3xl">
+                  <div className="flex justify-between items-start gap-4 mb-4">
+                    <div>
+                      <p className="text-green-400">Innings {inningsNumber}</p>
+                      <h2 className="text-3xl font-black mb-1">{currentTeamName}</h2>
+                      <p className="text-slate-400">Bowling: {bowlingTeamName}</p>
+                    </div>
+
+                    {inningsNumber === 2 && (
+                      <button
+                        onClick={goBackToFirstInnings}
+                        className="bg-yellow-500 text-black px-4 py-3 rounded-xl font-bold"
+                      >
+                        Go back to 1st Innings
+                      </button>
+                    )}
+                  </div>
                   {inningsNumber === 2 && (
-                    
                     <p className="mb-2 bg-yellow-500 text-black p-3 rounded-xl font-bold">
                       Target: {target}
                     </p>
@@ -1377,22 +1253,22 @@ function resetCurrentInnings() {
                     </p>
 
                     <div className="mt-2">
-                    <label className="text-slate-300 text-sm">Bowler</label>
-                    <select
-                      value={currentBowlerId}
-                      onChange={(e) => setCurrentBowlerId(e.target.value)}
-                      className="w-full p-2 rounded-xl bg-slate-700 mt-1"
-                    >
-                      <option value="">Select Bowler</option>
-                      {bowlingPlayers
-                        .filter(p => p.id !== lastBowlerId) 
-                        .map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name}
-                          </option>
-                      ))}
-                    </select>
-                  </div>
+                      <label className="text-slate-300 text-sm">Bowler</label>
+                      <select
+                        value={currentBowlerId}
+                        onChange={(e) => setCurrentBowlerId(e.target.value)}
+                        className="w-full p-2 rounded-xl bg-slate-700 mt-1"
+                      >
+                        <option value="">Select Bowler</option>
+                        {bowlingPlayers
+                          .filter((p) => p.id !== lastBowlerId)
+                          .map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
 
                     <p className="text-slate-300">Extras: {extras}</p>
 
@@ -1415,31 +1291,29 @@ function resetCurrentInnings() {
                         className="w-full p-3 rounded-xl bg-slate-800"
                       >
                         {currentPlayers
-                      .filter((player) => !player.out && player.id !== nonStrikerId)
-                      .map((player) => (
-                        <option key={player.id} value={player.id}>
-                          {player.name} {player.id === strikerId ? "*" : ""}
-                        </option>
-                      ))}
+                          .filter((player) => !player.out && player.id !== nonStrikerId)
+                          .map((player) => (
+                            <option key={player.id} value={player.id}>
+                              {player.name} {player.id === strikerId ? "*" : ""}
+                            </option>
+                          ))}
                       </select>
                     </div>
 
                     <div>
-                      <label className="block mb-1 text-slate-300">
-                        Non-Striker
-                      </label>
+                      <label className="block mb-1 text-slate-300">Non-Striker</label>
                       <select
                         value={nonStrikerId || ""}
                         onChange={(e) => setNonStrikerId(e.target.value)}
                         className="w-full p-3 rounded-xl bg-slate-800"
                       >
                         {currentPlayers
-                        .filter((player) => !player.out && player.id !== strikerId)
-                        .map((player) => (
-                          <option key={player.id} value={player.id}>
-                            {player.name}
-                          </option>
-                        ))}
+                          .filter((player) => !player.out && player.id !== strikerId)
+                          .map((player) => (
+                            <option key={player.id} value={player.id}>
+                              {player.name}
+                            </option>
+                          ))}
                       </select>
                     </div>
                   </div>
@@ -1464,10 +1338,7 @@ function resetCurrentInnings() {
                     >
                       Wide
                     </button>
-                    <button
-                      onClick={addNoBall}
-                      className="bg-orange-500 p-4 rounded-xl font-bold"
-                    >
+                    <button onClick={addNoBall} className="bg-orange-500 p-4 rounded-xl font-bold">
                       No Ball
                     </button>
                     <button
@@ -1489,7 +1360,6 @@ function resetCurrentInnings() {
                     >
                       Undo Last Ball
                     </button>
-
                   </div>
 
                   <LivePlayerManager
@@ -1509,25 +1379,25 @@ function resetCurrentInnings() {
                     giveStrikeToPlayer={giveStrikeToPlayer}
                   />
 
-<button
-  onClick={resetCurrentInnings}
-  className="mt-4 w-full bg-red-600 p-4 rounded-xl font-bold"
->
-  Reset Current Innings
-</button>
+                  <button
+                    onClick={resetCurrentInnings}
+                    className="mt-4 w-full bg-red-600 p-4 rounded-xl font-bold"
+                  >
+                    Reset Current Innings
+                  </button>
 
-{inningsNumber === 1 && (
-  <button
-    onClick={() => endFirstInnings()}
-    className={`mt-6 w-full p-4 rounded-xl font-bold ${
-      editingFirstInnings ? "bg-yellow-500 text-black" : "bg-blue-500"
-    }`}
-  >
-    {editingFirstInnings
-      ? "Save Edited 1st Innings / Continue to 2nd Innings"
-      : "End First Innings Manually"}
-  </button>
-)}
+                  {inningsNumber === 1 && (
+                    <button
+                      onClick={() => endFirstInnings()}
+                      className={`mt-6 w-full p-4 rounded-xl font-bold ${
+                        editingFirstInnings ? "bg-yellow-500 text-black" : "bg-blue-500"
+                      }`}
+                    >
+                      {editingFirstInnings
+                        ? "Save Edited 1st Innings / Continue to 2nd Innings"
+                        : "End First Innings Manually"}
+                    </button>
+                  )}
 
                   {inningsNumber === 2 && (
                     <button
@@ -1538,7 +1408,6 @@ function resetCurrentInnings() {
                     </button>
                   )}
                 </div>
-
               </div>
             )}
 
@@ -1546,28 +1415,26 @@ function resetCurrentInnings() {
               <div className="bg-slate-900 p-8 rounded-3xl">
                 <h2 className="text-4xl font-black mb-2">Match Result</h2>
 
-                <p className="text-2xl text-green-400 font-bold mb-3">
-                  {result}
-                </p>
+                <p className="text-2xl text-green-400 font-bold mb-3">{result}</p>
 
                 <div className="grid md:grid-cols-2 gap-6">
-                <SummaryBox
-                  title={teamAName}
-                  score={firstInnings.team === "A" ? firstInnings.score : score}
-                  wickets={firstInnings.team === "A" ? firstInnings.wickets : wickets}
-                  balls={firstInnings.team === "A" ? firstInnings.balls : balls}
-                  extras={firstInnings.team === "A" ? firstInnings.extras : extras}
-                  players={teamAPlayers}
-                />
+                  <SummaryBox
+                    title={teamAName}
+                    score={firstInnings.team === "A" ? firstInnings.score : score}
+                    wickets={firstInnings.team === "A" ? firstInnings.wickets : wickets}
+                    balls={firstInnings.team === "A" ? firstInnings.balls : balls}
+                    extras={firstInnings.team === "A" ? firstInnings.extras : extras}
+                    players={teamAPlayers}
+                  />
 
-                <SummaryBox
-                  title={teamBName}
-                  score={firstInnings.team === "B" ? firstInnings.score : score}
-                  wickets={firstInnings.team === "B" ? firstInnings.wickets : wickets}
-                  balls={firstInnings.team === "B" ? firstInnings.balls : balls}
-                  extras={firstInnings.team === "B" ? firstInnings.extras : extras}
-                  players={teamBPlayers}
-                />
+                  <SummaryBox
+                    title={teamBName}
+                    score={firstInnings.team === "B" ? firstInnings.score : score}
+                    wickets={firstInnings.team === "B" ? firstInnings.wickets : wickets}
+                    balls={firstInnings.team === "B" ? firstInnings.balls : balls}
+                    extras={firstInnings.team === "B" ? firstInnings.extras : extras}
+                    players={teamBPlayers}
+                  />
                 </div>
 
                 {hasSavedLiveMatch && (
@@ -1607,13 +1474,12 @@ function resetCurrentInnings() {
         )}
 
         {activeTab === "stats" && <PlayerStats matchHistory={matchHistory} />}
-      
-      {matchStarted && !matchFinished && (
-  <div className="mt-4 text-center text-slate-500 text-sm font-bold">
-    Celle Strikers • Sunday Cricket Scorebook Created By Awais
-  </div>
-)}
-      
+
+        {matchStarted && !matchFinished && (
+          <div className="mt-4 text-center text-slate-500 text-sm font-bold">
+            Celle Strikers • Sunday Cricket Scorebook Created By Awais
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1621,14 +1487,13 @@ function resetCurrentInnings() {
 
 function TeamColumn({ title, setTitle, players, onRemove, color }) {
   return (
-<div className={`p-3 rounded-3xl border ${color === "green" ? "bg-yellow-500 border-white-500" : "bg-blue-500 border-white-500"}`}>
-      
-<div className="flex justify-between items-center mb-3">
-  <h3 className="font-bold">{title}</h3>
-  <span className="bg-slate-800 px-3 py-1 rounded-full font-bold">
-    {players.length}
-  </span>
-</div>
+    <div
+      className={`p-3 rounded-3xl border ${color === "green" ? "bg-yellow-500 border-white-500" : "bg-blue-500 border-white-500"}`}
+    >
+      <div className="flex justify-between items-center mb-3">
+        <h3 className="font-bold">{title}</h3>
+        <span className="bg-slate-800 px-3 py-1 rounded-full font-bold">{players.length}</span>
+      </div>
 
       <input
         value={title}
@@ -1638,15 +1503,10 @@ function TeamColumn({ title, setTitle, players, onRemove, color }) {
 
       <div className="space-y-2">
         {players.length === 0 ? (
-          <p className="text-slate-400 bg-slate-800 p-3 rounded-xl">
-            No players selected.
-          </p>
+          <p className="text-slate-400 bg-slate-800 p-3 rounded-xl">No players selected.</p>
         ) : (
           players.map((player) => (
-            <div
-              key={player.id}
-              className="flex justify-between bg-slate-800 p-3 rounded-xl"
-            >
+            <div key={player.id} className="flex justify-between bg-slate-800 p-3 rounded-xl">
               <span>{player.name}</span>
               <button onClick={() => onRemove(player.id)} className="text-red-400">
                 Remove
@@ -1669,22 +1529,18 @@ function PlayerPool({
   teamAIds,
   teamBIds,
 }) {
-
   const availablePlayers = playerPool.filter(
-  (p) => !teamAIds.includes(p.id) && !teamBIds.includes(p.id)
-);
+    (p) => !teamAIds.includes(p.id) && !teamBIds.includes(p.id),
+  );
 
-const regularPlayers = availablePlayers.filter((p) => p.type === "regular");
-const nonRegularPlayers = availablePlayers.filter((p) => p.type !== "regular");
+  const regularPlayers = availablePlayers.filter((p) => p.type === "regular");
 
   return (
     <div className="bg-slate-500 p-3 rounded-3xl">
-     <div className="flex justify-between items-center mb-4">
-  <h2 className="text-2xl font-black">Player Pool</h2>
-  <span className="bg-slate-800 px-3 py-1 rounded-full font-bold">
-    {playerPool.length}
-  </span>
-</div>
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-2xl font-black">Player Pool</h2>
+        <span className="bg-slate-800 px-3 py-1 rounded-full font-bold">{playerPool.length}</span>
+      </div>
 
       <div className="grid md:grid-cols-[1fr_auto] gap-2 mb-2">
         <input
@@ -1695,14 +1551,10 @@ const nonRegularPlayers = availablePlayers.filter((p) => p.type !== "regular");
           className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700"
         />
 
-        <button
-          onClick={addPlayerToPool}
-          className="bg-green-500 px-5 rounded-xl font-bold"
-        >
+        <button onClick={addPlayerToPool} className="bg-green-500 px-5 rounded-xl font-bold">
           Add
         </button>
       </div>
-
 
       <PoolSection
         title="Players List"
@@ -1712,28 +1564,18 @@ const nonRegularPlayers = availablePlayers.filter((p) => p.type !== "regular");
         teamAIds={teamAIds}
         teamBIds={teamBIds}
       />
-
     </div>
   );
 }
 
-function PoolSection({
-  title,
-  players,
-  addToTeam,
-  removePlayerFromPool,
-  teamAIds,
-  teamBIds,
-}) {
+function PoolSection({ title, players, addToTeam, removePlayerFromPool, teamAIds, teamBIds }) {
   return (
     <div className="mb-2">
       <h3 className="font-bold text-slate-300 mb-2">{title}</h3>
 
       <div className="space-y-1">
         {players.length === 0 ? (
-          <p className="text-slate-500 bg-slate-800 p-3 rounded-xl">
-            No players here.
-          </p>
+          <p className="text-slate-500 bg-slate-800 p-3 rounded-xl">No players here.</p>
         ) : (
           players.map((player) => (
             <div key={player.id} className="bg-slate-800 p-3 rounded-xl">
@@ -1744,8 +1586,8 @@ function PoolSection({
                     {teamAIds.includes(player.id)
                       ? "In Team A"
                       : teamBIds.includes(player.id)
-                      ? "In Team B"
-                      : "Not selected"}
+                        ? "In Team B"
+                        : "Not selected"}
                   </p>
                 </div>
 
@@ -1780,6 +1622,59 @@ function PoolSection({
   );
 }
 
+function LiveTeamList({
+  title,
+  team,
+  players,
+  giveStrikeToPlayer,
+  removeFromTeam,
+  strikerId,
+  nonStrikerId,
+}) {
+  return (
+    <div
+      className={`p-3 rounded-2xl border ${team === "A" ? "bg-yellow-500 border-white-500" : "bg-blue-500 border-white-500"}`}
+    >
+      <h4 className={`font-bold mb-2 ${team === "A" ? "text-white-500" : "text-white-500"}`}>
+        {title}
+      </h4>
+      <div className="space-y-1">
+        {players.map((player) => (
+          <div
+            key={player.id}
+            className="flex justify-between items-center bg-slate-800 p-3 rounded-xl"
+          >
+            <span>{player.name}</span>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => giveStrikeToPlayer(player, team)}
+                className="bg-green-800 text-white px-3 py-1 rounded-lg font-bold"
+              >
+                Give Strike*
+              </button>
+
+              <button
+                onClick={() => {
+                  if (player.id === strikerId || player.id === nonStrikerId) {
+                    alert("Can't remove active batter.");
+                    return;
+                  }
+
+                  removeFromTeam(team, player.id);
+                }}
+                className="text-red-400 text-xl font-bold"
+              >
+                X
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function LivePlayerManager({
   teamAName,
   teamBName,
@@ -1793,49 +1688,9 @@ function LivePlayerManager({
   removeFromTeam,
   strikerId,
   nonStrikerId,
-  battingTeam,
   giveStrikeToPlayer,
 }) {
-  function PlayerList({ title, team, players }) {
-    return (
-      <div className={`p-3 rounded-2xl border ${team === "A" ? "bg-yellow-500 border-white-500" : "bg-blue-500 border-white-500"}`}>
-       <h4 className={`font-bold mb-2 ${team === "A" ? "text-white-500" : "text-white-500"}`}>{title}</h4>
-        <div className="space-y-1">
-          {players.map((player) => (
-<div
-  key={player.id}
-  className="flex justify-between items-center bg-slate-800 p-3 rounded-xl"
->
-  <span>{player.name}</span>
-
-  <div className="flex items-center gap-3">
-    <button
-      onClick={() => giveStrikeToPlayer(player, team)}
-      className="bg-green-800 text-white px-3 py-1 rounded-lg font-bold"
-    >
-      Give Strike*
-    </button>
-
-    <button
-      onClick={() => {
-        if (player.id === strikerId || player.id === nonStrikerId) {
-          alert("Can't remove active batter.");
-          return;
-        }
-
-        removeFromTeam(team, player.id);
-      }}
-      className="text-red-400 text-xl font-bold"
-    >
-      X
-    </button>
-  </div>
-</div>
-          ))}
-        </div>
-      </div>
-    );
-  }
+  const listActions = { giveStrikeToPlayer, removeFromTeam, strikerId, nonStrikerId };
 
   return (
     <div className="bg-slate-800 p-4 rounded-2xl mt-3 mb-2">
@@ -1858,22 +1713,18 @@ function LivePlayerManager({
           <option value="B">{teamBName}</option>
         </select>
 
-        <button
-          onClick={addLateNewPlayer}
-          className="bg-green-500 px-5 rounded-xl font-bold"
-        >
+        <button onClick={addLateNewPlayer} className="bg-green-500 px-5 rounded-xl font-bold">
           Add
         </button>
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
-        <PlayerList title={teamAName} team="A" players={teamAPlayers} />
-        <PlayerList title={teamBName} team="B" players={teamBPlayers} />
+        <LiveTeamList title={teamAName} team="A" players={teamAPlayers} {...listActions} />
+        <LiveTeamList title={teamBName} team="B" players={teamBPlayers} {...listActions} />
       </div>
     </div>
   );
 }
-
 
 function ScoreCard({ title, players, strikerId, timeline }) {
   return (
@@ -1884,11 +1735,7 @@ function ScoreCard({ title, players, strikerId, timeline }) {
         {players.map((player) => (
           <div key={player.id} className="bg-slate-800 p-2 rounded-xl">
             <div className="flex justify-between">
-              <span
-                className={
-                  player.id === strikerId ? "font-bold text-green-400" : ""
-                }
-              >
+              <span className={player.id === strikerId ? "font-bold text-green-400" : ""}>
                 {player.name}
                 {player.id === strikerId ? " *" : ""}
               </span>
@@ -1896,14 +1743,15 @@ function ScoreCard({ title, players, strikerId, timeline }) {
                 {player.runs} ({player.balls})
               </strong>
             </div>
-           <p className="text-sm text-slate-400">
-            4s: {player.fours} | 6s: {player.sixes}
-            {player.out ? " | Out" : ""}
-          </p>
+            <p className="text-sm text-slate-400">
+              4s: {player.fours} | 6s: {player.sixes}
+              {player.out ? " | Out" : ""}
+            </p>
 
-          <p className="text-xs text-slate-500">
-            Bowl: {formatOvers(player.ballsBowled || 0)} | Conceded Runs: {player.runsConceded || 0} | Wkts: {player.wicketsTaken || 0}
-          </p>
+            <p className="text-xs text-slate-500">
+              Bowl: {formatOvers(player.ballsBowled || 0)} | Conceded Runs:{" "}
+              {player.runsConceded || 0} | Wkts: {player.wicketsTaken || 0}
+            </p>
           </div>
         ))}
       </div>
@@ -1933,16 +1781,12 @@ function BowlingCard({ players }) {
 
       <div className="space-y-2">
         {players.map((p) => (
-          <div
-            key={p.id}
-            className="grid grid-cols-[1fr_auto] bg-slate-800 p-3 rounded-xl"
-          >
+          <div key={p.id} className="grid grid-cols-[1fr_auto] bg-slate-800 p-3 rounded-xl">
             <span>{p.name}</span>
 
             <span className="text-sm font-bold">
-              {Math.floor((p.ballsBowled || 0) / 6)}.
-              {(p.ballsBowled || 0) % 6} - {p.runsConceded || 0} -{" "}
-              {p.wicketsTaken || 0}
+              {Math.floor((p.ballsBowled || 0) / 6)}.{(p.ballsBowled || 0) % 6} -{" "}
+              {p.runsConceded || 0} - {p.wicketsTaken || 0}
             </span>
           </div>
         ))}
@@ -1966,18 +1810,17 @@ function SummaryBox({ title, score, wickets, balls, extras, players }) {
 
       <div className="space-y-1">
         {players.map((player) => (
-          <div
-            key={player.id}
-            className="flex justify-between bg-slate-900 p-3 rounded-xl"
-          >
+          <div key={player.id} className="flex justify-between bg-slate-900 p-3 rounded-xl">
             <span>{player.name}</span>
-          <div className="text-right">
-            <p>{player.runs} ({player.balls})</p>
-            <p className="text-xs text-slate-400">
-              Bowl: {formatOvers(player.ballsBowled || 0)} | Conceded Runs:{" "}
-              {player.runsConceded || 0} | Wkts: {player.wicketsTaken || 0}
-            </p>
-          </div>
+            <div className="text-right">
+              <p>
+                {player.runs} ({player.balls})
+              </p>
+              <p className="text-xs text-slate-400">
+                Bowl: {formatOvers(player.ballsBowled || 0)} | Conceded Runs:{" "}
+                {player.runsConceded || 0} | Wkts: {player.wicketsTaken || 0}
+              </p>
+            </div>
           </div>
         ))}
       </div>
@@ -2002,10 +1845,7 @@ function MatchHistory({ matchHistory, reloadHistory, deleteMatch }) {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
         <h2 className="text-3xl font-black">Match History</h2>
 
-        <button
-          onClick={reloadHistory}
-          className="bg-slate-800 px-5 py-3 rounded-xl font-bold"
-        >
+        <button onClick={reloadHistory} className="bg-slate-800 px-5 py-3 rounded-xl font-bold">
           Refresh
         </button>
       </div>
@@ -2015,12 +1855,8 @@ function MatchHistory({ matchHistory, reloadHistory, deleteMatch }) {
       ) : (
         <div className="space-y-4">
           {Object.entries(groupedMatches).map(([date, matches]) => {
-            const teamAWins = matches.filter(
-              (m) => m.winner === m.teamAName
-            ).length;
-            const teamBWins = matches.filter(
-              (m) => m.winner === m.teamBName
-            ).length;
+            const teamAWins = matches.filter((m) => m.winner === m.teamAName).length;
+            const teamBWins = matches.filter((m) => m.winner === m.teamBName).length;
             const ties = matches.filter((m) => m.winner === "Tie").length;
 
             return (
@@ -2028,8 +1864,8 @@ function MatchHistory({ matchHistory, reloadHistory, deleteMatch }) {
                 <div className="mb-2 bg-slate-800 p-4 rounded-2xl">
                   <h3 className="text-2xl font-black">{date}</h3>
                   <p className="text-slate-300">
-                    {matches.length} match(es) played | Team A wins:{" "}
-                    {teamAWins} | Team B wins: {teamBWins} | Ties: {ties}
+                    {matches.length} match(es) played | Team A wins: {teamAWins} | Team B wins:{" "}
+                    {teamBWins} | Ties: {ties}
                   </p>
                 </div>
 
@@ -2038,18 +1874,12 @@ function MatchHistory({ matchHistory, reloadHistory, deleteMatch }) {
                     <div key={match.id} className="bg-slate-800 p-5 rounded-2xl">
                       <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-2">
                         <div>
-                          <h4 className="text-xl font-bold">
-                            Match {matches.length - index}
-                          </h4>
-                          <p className="text-green-400 font-bold">
-                            {match.result}
-                          </p>
+                          <h4 className="text-xl font-bold">Match {matches.length - index}</h4>
+                          <p className="text-green-400 font-bold">{match.result}</p>
                         </div>
 
                         <div className="flex items-center gap-3">
-                          <p className="text-slate-300">
-                            Overs: {match.overs}
-                          </p>
+                          <p className="text-slate-300">Overs: {match.overs}</p>
 
                           <button
                             onClick={() => deleteMatch(match.id)}
